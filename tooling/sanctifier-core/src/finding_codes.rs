@@ -7,6 +7,10 @@ pub const LEDGER_SIZE_RISK: &str = "S004";
 pub const STORAGE_COLLISION: &str = "S005";
 pub const UNSAFE_PATTERN: &str = "S006";
 pub const CUSTOM_RULE_MATCH: &str = "S007";
+pub const EVENT_INCONSISTENCY: &str = "S008";
+pub const UNHANDLED_RESULT: &str = "S009";
+pub const UPGRADE_RISK: &str = "S010";
+pub const SMT_INVARIANT_VIOLATION: &str = "S011";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FindingCode {
@@ -51,6 +55,26 @@ pub fn all_finding_codes() -> Vec<FindingCode> {
             code: CUSTOM_RULE_MATCH,
             category: "custom_rule",
             description: "User-defined rule matched contract source",
+        },
+        FindingCode {
+            code: EVENT_INCONSISTENCY,
+            category: "events",
+            description: "Inconsistent topic counts or sub-optimal gas patterns in events",
+        },
+        FindingCode {
+            code: UNHANDLED_RESULT,
+            category: "logic",
+            description: "A function call returns a Result that is not consumed or handled",
+        },
+        FindingCode {
+            code: UPGRADE_RISK,
+            category: "upgrades",
+            description: "Potential security risk in contract upgrade or admin mechanisms",
+        },
+        FindingCode {
+            code: SMT_INVARIANT_VIOLATION,
+            category: "formal_verification",
+            description: "Formal verification (Z3) proved a mathematical violation of an invariant",
         },
     ]
 }
