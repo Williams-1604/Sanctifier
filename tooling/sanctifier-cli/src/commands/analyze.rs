@@ -74,7 +74,8 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
         io::stdout().flush().ok();
     }
 
-    let config = load_config(path);
+    let mut config = load_config(path);
+    config.ledger_limit = args.limit; // Apply CLI limit to config
     let analyzer = Analyzer::new(config);
 
     // Load vulnerability database
@@ -109,6 +110,10 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
     let mut arithmetic_issues = Vec::new();
     let mut custom_matches = Vec::new();
     let mut vuln_matches: Vec<VulnMatch> = Vec::new();
+    let mut event_issues = Vec::new();
+    let mut unhandled_results = Vec::new();
+    let mut upgrade_reports = Vec::new();
+    let mut smt_issues = Vec::new();
 
     if path.is_dir() {
         walk_dir(
@@ -123,6 +128,10 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
             &mut arithmetic_issues,
             &mut custom_matches,
             &mut vuln_matches,
+            &mut event_issues,
+            &mut unhandled_results,
+            &mut upgrade_reports,
+            &mut smt_issues,
         )?;
     } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
         if let Ok(content) = fs::read_to_string(path) {
@@ -136,6 +145,10 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
             custom_matches
                 .extend(analyzer.analyze_custom_rules(&content, &analyzer.config.custom_rules));
             vuln_matches.extend(vuln_db.scan(&content, &file_name));
+            event_issues.extend(analyzer.scan_events(&content));
+            unhandled_results.extend(analyzer.scan_unhandled_results(&content));
+            upgrade_reports.push(analyzer.analyze_upgrade_patterns(&content));
+            smt_issues.extend(analyzer.verify_smt_invariants(&content));
         }
     }
 
@@ -145,12 +158,18 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
         + auth_gaps.len()
         + panic_issues.len()
         + arithmetic_issues.len()
-        + custom_matches.len();
+        + custom_matches.len()
+        + event_issues.len()
+        + unhandled_results.len()
+        + upgrade_reports.iter().map(|r| r.findings.len()).sum::<usize>()
+        + smt_issues.len();
 
     let has_critical =
         !auth_gaps.is_empty() || panic_issues.iter().any(|p| p.issue_type == "panic!");
     let has_high = !arithmetic_issues.is_empty()
         || !panic_issues.is_empty()
+        || !smt_issues.is_empty()
+        || !unhandled_results.is_empty()
         || size_warnings
             .iter()
             .any(|w| w.level == SizeWarningLevel::ExceedsLimit);
@@ -180,6 +199,10 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
             "panic_issues": panic_issues,
             "arithmetic_issues": arithmetic_issues,
             "custom_rules": custom_matches,
+            "event_issues": event_issues,
+            "unhandled_results": unhandled_results,
+            "upgrade_reports": upgrade_reports,
+            "smt_issues": smt_issues,
             "vulnerability_db_matches": vuln_matches,
             "vulnerability_db_version": vuln_db.version,
             "metadata": {
@@ -198,6 +221,9 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                 "size_warnings": size_warnings.len(),
                 "unsafe_patterns": unsafe_patterns.len(),
                 "custom_rule_matches": custom_matches.len(),
+                "event_issues": event_issues.len(),
+                "unhandled_results": unhandled_results.len(),
+                "smt_issues": smt_issues.len(),
                 "has_critical": has_critical,
                 "has_high": has_high,
             },
@@ -245,6 +271,34 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                     "line": m.line,
                     "snippet": m.snippet,
                     "severity": m.severity,
+                })).collect::<Vec<_>>(),
+                "event_issues": event_issues.iter().map(|e| serde_json::json!({
+                    "code": finding_codes::EVENT_INCONSISTENCY,
+                    "event_name": e.event_name,
+                    "issue_type": e.issue_type,
+                    "location": e.location,
+                    "message": e.message,
+                })).collect::<Vec<_>>(),
+                "unhandled_results": unhandled_results.iter().map(|r| serde_json::json!({
+                    "code": finding_codes::UNHANDLED_RESULT,
+                    "function_name": r.function_name,
+                    "call_expression": r.call_expression,
+                    "location": r.location,
+                    "message": r.message,
+                })).collect::<Vec<_>>(),
+                "upgrade_risks": upgrade_reports.iter().flat_map(|r| &r.findings).map(|f| serde_json::json!({
+                    "code": finding_codes::UPGRADE_RISK,
+                    "category": f.category,
+                    "function_name": f.function_name,
+                    "location": f.location,
+                    "message": f.message,
+                    "suggestion": f.suggestion,
+                })).collect::<Vec<_>>(),
+                "smt_issues": smt_issues.iter().map(|s| serde_json::json!({
+                    "code": finding_codes::SMT_INVARIANT_VIOLATION,
+                    "function_name": s.function_name,
+                    "description": s.description,
+                    "location": s.location,
                 })).collect::<Vec<_>>(),
             },
         });
@@ -351,6 +405,72 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                 m.snippet
             );
         }
+        }
+    }
+
+    if !event_issues.is_empty() {
+        println!("\n{} Found Event Consistency/Optimization issues!", "⚠️".yellow());
+        for issue in &event_issues {
+            println!(
+                "   {} [{}] Event: {}",
+                "->".red(),
+                finding_codes::EVENT_INCONSISTENCY.bold(),
+                issue.event_name.bold()
+            );
+            println!("      Type: {:?}", issue.issue_type);
+            println!("      Location: {}", issue.location);
+            println!("      Message: {}", issue.message);
+        }
+    }
+
+    if !unhandled_results.is_empty() {
+        println!("\n{} Found Unhandled Result issues!", "⚠️".yellow());
+        for issue in &unhandled_results {
+            println!(
+                "   {} [{}] Function: {}",
+                "->".red(),
+                finding_codes::UNHANDLED_RESULT.bold(),
+                issue.function_name.bold()
+            );
+            println!("      Call: {}", issue.call_expression);
+            println!("      Location: {}", issue.location);
+            println!("      Message: {}", issue.message);
+        }
+    }
+
+    let total_upgrade_findings: usize = upgrade_reports.iter().map(|r| r.findings.len()).sum();
+    if total_upgrade_findings > 0 {
+        println!("\n{} Found Upgrade/Admin Risk issues!", "⚠️".yellow());
+        for report in &upgrade_reports {
+            for finding in &report.findings {
+                println!(
+                    "   {} [{}] Category: {:?}",
+                    "->".red(),
+                    finding_codes::UPGRADE_RISK.bold(),
+                    finding.category
+                );
+                if let Some(f_name) = &finding.function_name {
+                    println!("      Function: {}", f_name);
+                }
+                println!("      Location: {}", finding.location);
+                println!("      Message: {}", finding.message);
+                println!("      Suggestion: {}", finding.suggestion);
+            }
+        }
+    }
+
+    if !smt_issues.is_empty() {
+        println!("\n{} Found Formal Verification (SMT) issues!", "❌".red());
+        for issue in &smt_issues {
+            println!(
+                "   {} [{}] Function: {}",
+                "->".red(),
+                finding_codes::SMT_INVARIANT_VIOLATION.bold(),
+                issue.function_name.bold()
+            );
+            println!("      Description: {}", issue.description);
+            println!("      Location: {}", issue.location);
+        }
     }
 
     // Vulnerability database matches
@@ -439,6 +559,10 @@ fn walk_dir(
     arithmetic_issues: &mut Vec<sanctifier_core::ArithmeticIssue>,
     custom_matches: &mut Vec<sanctifier_core::CustomRuleMatch>,
     vuln_matches: &mut Vec<VulnMatch>,
+    event_issues: &mut Vec<sanctifier_core::EventIssue>,
+    unhandled_results: &mut Vec<sanctifier_core::UnhandledResultIssue>,
+    upgrade_reports: &mut Vec<sanctifier_core::UpgradeReport>,
+    smt_issues: &mut Vec<sanctifier_core::smt::SmtInvariantIssue>,
 ) -> anyhow::Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
@@ -466,6 +590,10 @@ fn walk_dir(
                 arithmetic_issues,
                 custom_matches,
                 vuln_matches,
+                event_issues,
+                unhandled_results,
+                upgrade_reports,
+                smt_issues,
             )?;
         } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
             if let Ok(content) = fs::read_to_string(&path) {
@@ -511,6 +639,30 @@ fn walk_dir(
 
                 // Scan against vulnerability database
                 vuln_matches.extend(vuln_db.scan(&content, &file_name));
+
+                let mut e = analyzer.scan_events(&content);
+                for i in &mut e {
+                    i.location = format!("{}:{}", file_name, i.location);
+                }
+                event_issues.extend(e);
+
+                let mut r = analyzer.scan_unhandled_results(&content);
+                for i in &mut r {
+                    i.location = format!("{}:{}", file_name, i.location);
+                }
+                unhandled_results.extend(r);
+
+                let mut up = analyzer.analyze_upgrade_patterns(&content);
+                for f in &mut up.findings {
+                    f.location = format!("{}:{}", file_name, f.location);
+                }
+                upgrade_reports.push(up);
+
+                let mut smt = analyzer.verify_smt_invariants(&content);
+                for i in &mut smt {
+                    i.location = format!("{}:{}", file_name, i.location);
+                }
+                smt_issues.extend(smt);
             }
         }
     }

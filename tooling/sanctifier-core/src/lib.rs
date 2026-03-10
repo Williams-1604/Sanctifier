@@ -6,6 +6,7 @@ pub mod gas_report;
 pub mod rules;
 pub mod smt;
 mod storage_collision;
+pub mod patcher;
 use std::collections::HashSet;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
@@ -317,6 +318,14 @@ impl Analyzer {
 
     pub fn run_rules(&self, source: &str) -> Vec<RuleViolation> {
         self.rule_registry.run_all(source)
+    }
+
+    pub fn run_fixes(&self, source: &str) -> Vec<rules::Patch> {
+        self.rule_registry
+            .rules
+            .iter()
+            .flat_map(|rule| rule.fix(source))
+            .collect()
     }
 
     pub fn run_rule(&self, source: &str, name: &str) -> Vec<RuleViolation> {
