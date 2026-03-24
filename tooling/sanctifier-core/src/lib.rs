@@ -1,12 +1,39 @@
+//! **sanctifier-core** — static-analysis engine for Stellar Soroban smart
+//! contracts.
+//!
+//! This crate provides the [`Analyzer`] entry-point together with a
+//! [`RuleRegistry`] of pluggable rules.  Every finding is tagged with a
+//! canonical code from the [`finding_codes`] module (`S000` – `S012`).
+//!
+//! # Quick start
+//!
+//! ```rust,ignore
+//! use sanctifier_core::{Analyzer, SanctifyConfig};
+//!
+//! let analyzer = Analyzer::new(SanctifyConfig::default());
+//! let warnings = analyzer.analyze_ledger_size(source_code);
+//! ```
+
+#![warn(missing_docs)]
+
 use serde::{Deserialize, Serialize};
 use std::panic::catch_unwind;
+
+/// Canonical finding codes (`S000` – `S012`) emitted by every analysis pass.
 pub mod finding_codes;
+/// Gas / instruction-cost estimation heuristics.
 pub mod gas_estimator;
-pub mod gas_report;
+/// (Reserved) Gas report rendering.
+pub(crate) mod gas_report;
+/// Automatic patch application.
 pub mod patcher;
+/// Pluggable rule system ([`Rule`] trait, [`RuleRegistry`], built-in rules).
 pub mod rules;
+/// SEP-41 token-interface verification.
 pub mod sep41;
+/// Z3 SMT solver integration for formal verification.
 pub mod smt;
+/// Storage-key collision detection (internal).
 mod storage_collision;
 use std::collections::HashSet;
 use syn::spanned::Spanned;
@@ -32,6 +59,7 @@ where
 
 /// Severity of a ledger size warning.
 #[derive(Debug, Serialize, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum SizeWarningLevel {
     /// Size exceeds the ledger entry limit (e.g. 64KB).
     ExceedsLimit,
@@ -39,69 +67,109 @@ pub enum SizeWarningLevel {
     ApproachingLimit,
 }
 
+/// A warning about a `#[contracttype]` whose estimated serialised size is
+/// close to or exceeds the ledger entry limit.
 #[derive(Debug, Serialize, Clone)]
 pub struct SizeWarning {
+    /// Name of the struct or enum that was analysed.
     pub struct_name: String,
+    /// Estimated size in bytes.
     pub estimated_size: usize,
+    /// The configured ledger-entry limit in bytes.
     pub limit: usize,
+    /// Whether the size exceeds or merely approaches the limit.
     pub level: SizeWarningLevel,
 }
 
+/// A `panic!`, `.unwrap()`, or `.expect()` call found inside a contract
+/// function.
 #[derive(Debug, Serialize, Clone)]
 pub struct PanicIssue {
+    /// The contract function containing the panic-path.
     pub function_name: String,
-    pub issue_type: String, // "panic!", "unwrap", "expect"
+    /// One of `"panic!"`, `"unwrap"`, or `"expect"`.
+    pub issue_type: String,
+    /// Human-readable location string.
     pub location: String,
 }
 
 // ── UnsafePattern types (visitor-based panic/unwrap scanning) ─────────────────
 
+/// The kind of unsafe pattern detected by [`Analyzer::analyze_unsafe_patterns`].
 #[derive(Debug, Serialize, Clone)]
+#[non_exhaustive]
 pub enum PatternType {
+    /// A `panic!()` macro invocation.
     Panic,
+    /// A `.unwrap()` call.
     Unwrap,
+    /// A `.expect("…")` call.
     Expect,
 }
 
+/// An unsafe pattern (`panic!`, `.unwrap()`, `.expect()`) together with its
+/// source location.
 #[derive(Debug, Serialize, Clone)]
 pub struct UnsafePattern {
+    /// The kind of pattern.
     pub pattern_type: PatternType,
+    /// 1-based line number.
     pub line: usize,
+    /// Source snippet around the pattern.
     pub snippet: String,
 }
 
 // ── Upgrade analysis types ────────────────────────────────────────────────────
 
+/// A single finding related to contract upgrade / admin mechanisms.
 #[derive(Debug, Serialize, Clone)]
 pub struct UpgradeFinding {
+    /// Broad category of the finding.
     pub category: UpgradeCategory,
+    /// Name of the related function, if any.
     pub function_name: Option<String>,
+    /// Human-readable location.
     pub location: String,
+    /// Description of the finding.
     pub message: String,
+    /// Actionable suggestion.
     pub suggestion: String,
 }
 
+/// Category of an upgrade-safety finding.
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum UpgradeCategory {
+    /// Admin-only access control.
     AdminControl,
+    /// Timelock mechanism.
     Timelock,
+    /// Initialisation pattern.
     InitPattern,
+    /// Storage layout concern.
     StorageLayout,
+    /// Governance / upgrade mechanism.
     Governance,
 }
 
-/// Upgrade safety report.
+/// Upgrade safety report produced by [`Analyzer::analyze_upgrade_patterns`].
 #[derive(Debug, Serialize, Clone, Default)]
 pub struct UpgradeReport {
+    /// Individual findings.
     pub findings: Vec<UpgradeFinding>,
+    /// Names of detected upgrade/admin functions.
     pub upgrade_mechanisms: Vec<String>,
+    /// Names of detected initialisation functions.
     pub init_functions: Vec<String>,
+    /// Names of `#[contracttype]` storage types.
     pub storage_types: Vec<String>,
+    /// Actionable suggestions for improving upgrade safety.
     pub suggestions: Vec<String>,
 }
 
 impl UpgradeReport {
+    /// Returns a default (empty) report.
     pub fn empty() -> Self {
         Self {
             findings: vec![],
@@ -214,13 +282,19 @@ pub struct ArithmeticIssue {
 /// Represents a potential storage key collision.
 #[derive(Debug, Serialize, Clone)]
 pub struct StorageCollisionIssue {
+    /// The storage key literal or expression.
     pub key_value: String,
+    /// The type of the key (e.g. `Symbol`, `BytesN`).
     pub key_type: String,
+    /// Source location.
     pub location: String,
+    /// Human-readable description.
     pub message: String,
 }
 
+/// The kind of event issue detected by [`Analyzer::scan_events`].
 #[derive(Debug, Serialize, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum EventIssueType {
     /// Topics count varies for the same event name.
     InconsistentSchema,
@@ -228,63 +302,93 @@ pub enum EventIssueType {
     OptimizableTopic,
 }
 
+/// An event-related finding (inconsistent schema or optimisable topic).
 #[derive(Debug, Serialize, Clone)]
 pub struct EventIssue {
+    /// Function that emits the event.
     pub function_name: String,
+    /// Name of the event.
     pub event_name: String,
+    /// Kind of issue.
     pub issue_type: EventIssueType,
+    /// Human-readable description.
     pub message: String,
+    /// Source location.
     pub location: String,
 }
 
+/// A `Result` return value that is silently discarded.
 #[derive(Debug, Serialize, Clone)]
 pub struct UnhandledResultIssue {
+    /// Function containing the unhandled result.
     pub function_name: String,
+    /// The call expression that returns `Result`.
     pub call_expression: String,
+    /// Human-readable message.
     pub message: String,
+    /// Source location.
     pub location: String,
 }
 
 // ── Configuration ─────────────────────────────────────────────────────────────
+/// Severity level for user-defined custom rules.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum RuleSeverity {
+    /// Informational.
     Info,
+    /// Default severity.
     #[default]
     Warning,
+    /// Hard error.
     Error,
 }
 
-/// User-defined regex-based rule. Defined in .sanctify.toml under [[custom_rules]].
+/// A user-defined regex-based rule loaded from `.sanctify.toml`.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CustomRule {
+    /// Display name of the rule.
     pub name: String,
+    /// Regex pattern that triggers the rule.
     pub pattern: String,
+    /// Severity (defaults to `Warning`).
     #[serde(default)]
     pub severity: RuleSeverity,
 }
 
-/// A match from a custom regex rule.
+/// A match produced by a [`CustomRule`].
 #[derive(Debug, Serialize, Clone)]
 pub struct CustomRuleMatch {
+    /// Name of the custom rule that matched.
     pub rule_name: String,
+    /// 1-based line number.
     pub line: usize,
+    /// Source snippet.
     pub snippet: String,
+    /// Severity inherited from the rule.
     pub severity: RuleSeverity,
 }
 
+/// Project-level configuration loaded from `.sanctify.toml`.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SanctifyConfig {
+    /// Paths to skip during directory walking.
     #[serde(default = "default_ignore_paths")]
     pub ignore_paths: Vec<String>,
+    /// Names of enabled built-in rules.
     #[serde(default = "default_enabled_rules")]
     pub enabled_rules: Vec<String>,
+    /// Ledger-entry size limit in bytes.
     #[serde(default = "default_ledger_limit")]
     pub ledger_limit: usize,
+    /// Fraction of `ledger_limit` at which an *approaching* warning fires.
     #[serde(default = "default_approaching_threshold")]
     pub approaching_threshold: f64,
+    /// When `true`, use a tighter threshold for size warnings.
     #[serde(default)]
     pub strict_mode: bool,
+    /// User-defined regex rules.
     #[serde(default)]
     pub custom_rules: Vec<CustomRule>,
 }
@@ -346,12 +450,18 @@ fn classify_size(
 
 // ── Analyzer ──────────────────────────────────────────────────────────────────
 
+/// The main analysis engine.
+///
+/// Create one via [`Analyzer::new`], then call the various `scan_*` /
+/// `analyze_*` / `verify_*` methods on contract source code.
 pub struct Analyzer {
+    /// The active configuration.
     pub config: SanctifyConfig,
     rule_registry: RuleRegistry,
 }
 
 impl Analyzer {
+    /// Create an [`Analyzer`] with default built-in rules.
     pub fn new(config: SanctifyConfig) -> Self {
         Self {
             config,
@@ -359,6 +469,7 @@ impl Analyzer {
         }
     }
 
+    /// Create an [`Analyzer`] with a custom [`RuleRegistry`].
     pub fn with_rules(config: SanctifyConfig, registry: RuleRegistry) -> Self {
         Self {
             config,
@@ -366,10 +477,12 @@ impl Analyzer {
         }
     }
 
+    /// Run every registered rule and return all violations.
     pub fn run_rules(&self, source: &str) -> Vec<RuleViolation> {
         self.rule_registry.run_all(source)
     }
 
+    /// Run every registered rule and collect auto-fix patches.
     pub fn run_fixes(&self, source: &str) -> Vec<rules::Patch> {
         self.rule_registry
             .rules
@@ -378,18 +491,22 @@ impl Analyzer {
             .collect()
     }
 
+    /// Run a single named rule.
     pub fn run_rule(&self, source: &str, name: &str) -> Vec<RuleViolation> {
         self.rule_registry.run_by_name(source, name)
     }
 
+    /// List the names of all registered rules.
     pub fn available_rules(&self) -> Vec<&str> {
         self.rule_registry.available_rules()
     }
 
+    /// Analyse upgrade/admin patterns and return an [`UpgradeReport`].
     pub fn analyze_upgrade_patterns(&self, source: &str) -> UpgradeReport {
         with_panic_guard(|| self.analyze_upgrade_patterns_impl(source))
     }
 
+    /// Verify the contract against the SEP-41 token interface.
     pub fn verify_sep41_interface(&self, source: &str) -> Sep41VerificationReport {
         with_panic_guard(|| sep41::verify(source))
     }
@@ -450,10 +567,13 @@ impl Analyzer {
         report
     }
 
+    /// Detect public functions that mutate storage or call external contracts
+    /// without an authentication check.
     pub fn scan_auth_gaps(&self, source: &str) -> Vec<String> {
         with_panic_guard(|| self.scan_auth_gaps_impl(source))
     }
 
+    /// Run lightweight formal-verification checks via Z3.
     pub fn verify_smt_invariants(&self, source: &str) -> Vec<smt::SmtInvariantIssue> {
         with_panic_guard(|| self.verify_smt_invariants_impl(source))
     }
@@ -511,6 +631,7 @@ impl Analyzer {
         issues
     }
 
+    /// Estimate gas / instruction costs per public function.
     pub fn scan_gas_estimation(&self, source: &str) -> Vec<gas_estimator::GasEstimationReport> {
         with_panic_guard(|| self.scan_gas_estimation_impl(source))
     }
@@ -731,6 +852,7 @@ impl Analyzer {
 
     // ── Storage collision (stub) ──────────────────────────────────────────────
 
+    /// (Stub) Check a set of storage keys for collisions.
     pub fn check_storage_collisions(&self, _keys: Vec<String>) -> bool {
         false
     }
@@ -991,6 +1113,7 @@ impl Analyzer {
         matches
     }
 
+    /// Extract cross-contract call edges for the call-graph.
     pub fn scan_invoke_contract_calls(
         &self,
         source: &str,
@@ -1024,6 +1147,7 @@ impl Analyzer {
 
     /// Scans for potential storage key collisions by analyzing constants,
     /// Symbol::new calls, and symbol_short! macros.
+    /// Detect potential storage-key collisions within a single source file.
     pub fn scan_storage_collisions(&self, source: &str) -> Vec<StorageCollisionIssue> {
         with_panic_guard(|| self.scan_storage_collisions_impl(source))
     }
@@ -1040,6 +1164,7 @@ impl Analyzer {
         visitor.collisions
     }
 
+    /// Detect `Result` return values that are silently discarded.
     pub fn scan_unhandled_results(&self, source: &str) -> Vec<UnhandledResultIssue> {
         with_panic_guard(|| self.scan_unhandled_results_impl(source))
     }
@@ -1169,16 +1294,24 @@ impl Analyzer {
     }
 }
 
+/// An edge in the cross-contract call graph.
 #[derive(Debug, Clone, Serialize)]
 pub struct ContractCallEdge {
+    /// The calling contract.
     pub caller: String,
+    /// The callee contract (derived from the expression).
     pub callee: String,
+    /// File containing the call.
     pub file: String,
+    /// 1-based line number.
     pub line: usize,
+    /// Raw expression used as the contract-id argument.
     pub contract_id_expr: String,
+    /// Optional function-name expression.
     pub function_expr: Option<String>,
 }
 
+/// Render a set of [`ContractCallEdge`]s as a Graphviz DOT string.
 pub fn callgraph_to_dot(edges: &[ContractCallEdge]) -> String {
     use std::collections::BTreeMap;
 

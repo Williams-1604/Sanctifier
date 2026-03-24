@@ -2,6 +2,7 @@ use crate::rules::{Patch, Rule, RuleViolation, Severity};
 use syn::spanned::Spanned;
 use syn::{parse_str, File, Item};
 
+/// Rule that flags public functions modifying state without auth.
 pub struct AuthGapRule;
 
 #[derive(Default)]
@@ -18,6 +19,7 @@ impl FunctionSecuritySummary {
 }
 
 impl AuthGapRule {
+    /// Create a new instance.
     pub fn new() -> Self {
         Self
     }

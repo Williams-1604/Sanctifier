@@ -5,9 +5,11 @@ use syn::spanned::Spanned;
 use syn::visit::Visit;
 use syn::{parse_str, File};
 
+/// Rule that detects unchecked arithmetic operations.
 pub struct ArithmeticOverflowRule;
 
 impl ArithmeticOverflowRule {
+    /// Create a new instance.
     pub fn new() -> Self {
         Self
     }

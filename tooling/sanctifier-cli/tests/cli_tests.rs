@@ -25,7 +25,8 @@ fn test_analyze_valid_contract() {
         .env_remove("RUST_LOG")
         .assert()
         .success()
-        .stderr(predicates::str::is_empty())
+        // Progress indicator is written to stderr
+        .stderr(predicates::str::contains("Analyzing"))
         .stdout(predicates::str::contains("Static analysis complete."))
         .stdout(predicates::str::contains("No ledger size issues found."))
         .stdout(predicates::str::contains(

@@ -3,9 +3,11 @@ use syn::spanned::Spanned;
 use syn::visit::Visit;
 use syn::{parse_str, File, Type};
 
+/// Rule that flags `Result` values that are silently discarded.
 pub struct UnhandledResultRule;
 
 impl UnhandledResultRule {
+    /// Create a new instance.
     pub fn new() -> Self {
         Self
     }

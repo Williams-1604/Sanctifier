@@ -3,11 +3,15 @@ use crate::commands::webhook::{
 };
 use clap::Args;
 use colored::*;
+use rayon::prelude::*;
 use sanctifier_core::finding_codes;
 use sanctifier_core::{Analyzer, SanctifyConfig, SizeWarningLevel};
 use serde_json;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
 use crate::vulndb::{VulnDatabase, VulnMatch};
@@ -29,16 +33,47 @@ pub struct AnalyzeArgs {
     /// Path to a custom vulnerability database JSON file
     #[arg(long)]
     pub vuln_db: Option<PathBuf>,
+
+    /// Per-file analysis timeout in seconds (0 = no timeout)
+    #[arg(short, long, default_value = "30")]
+    pub timeout: u64,
+
     /// Webhook endpoint(s) to notify when scan completes (Discord/Slack/Teams/custom)
     #[arg(long = "webhook-url")]
     pub webhook_urls: Vec<String>,
 }
+
+// ── Per-file result container ────────────────────────────────────────────────
+
+/// All findings produced by analysing a single `.rs` file.
+#[derive(Default)]
+struct FileAnalysisResult {
+    file_path: String,
+    collisions: Vec<sanctifier_core::StorageCollisionIssue>,
+    size_warnings: Vec<sanctifier_core::SizeWarning>,
+    unsafe_patterns: Vec<sanctifier_core::UnsafePattern>,
+    auth_gaps: Vec<String>,
+    panic_issues: Vec<sanctifier_core::PanicIssue>,
+    arithmetic_issues: Vec<sanctifier_core::ArithmeticIssue>,
+    custom_matches: Vec<sanctifier_core::CustomRuleMatch>,
+    vuln_matches: Vec<VulnMatch>,
+    event_issues: Vec<sanctifier_core::EventIssue>,
+    unhandled_results: Vec<sanctifier_core::UnhandledResultIssue>,
+    upgrade_reports: Vec<sanctifier_core::UpgradeReport>,
+    smt_issues: Vec<sanctifier_core::smt::SmtInvariantIssue>,
+    sep41_checked_contracts: Vec<String>,
+    sep41_issues: Vec<sanctifier_core::Sep41Issue>,
+    timed_out: bool,
+}
+
+// ── Entry point ──────────────────────────────────────────────────────────────
 
 pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
     let path = &args.path;
     let format = &args.format;
     let _limit = args.limit;
     let is_json = format == "json";
+    let timeout_secs = args.timeout;
 
     if !is_soroban_project(path) {
         if is_json {
@@ -61,11 +96,11 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
     info!(target: "sanctifier", path = %path.display(), "Analyzing contract");
 
     let mut config = load_config(path);
-    config.ledger_limit = args.limit; // Apply CLI limit to config
-    let analyzer = Analyzer::new(config);
+    config.ledger_limit = args.limit;
+    let analyzer = Arc::new(Analyzer::new(config));
 
     // Load vulnerability database
-    let vuln_db = match &args.vuln_db {
+    let vuln_db = Arc::new(match &args.vuln_db {
         Some(db_path) => {
             info!(
                 target: "sanctifier",
@@ -83,8 +118,76 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
             );
             database
         }
+    });
+
+    // ── Phase 1: collect all .rs file paths ──────────────────────────────
+    let rs_files = if path.is_dir() {
+        collect_rs_files(path, &analyzer.config.ignore_paths)
+    } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+        vec![path.clone()]
+    } else {
+        vec![]
     };
 
+    let total_files = rs_files.len();
+
+    // ── Phase 2: analyse in parallel with per-file timeout ───────────────
+    let counter = Arc::new(AtomicUsize::new(0));
+    let timeout_dur = if timeout_secs == 0 {
+        None
+    } else {
+        Some(Duration::from_secs(timeout_secs))
+    };
+
+    let mut results: Vec<FileAnalysisResult> = rs_files
+        .par_iter()
+        .map(|file_path| {
+            let idx = counter.fetch_add(1, Ordering::Relaxed) + 1;
+            let file_name = file_path.display().to_string();
+
+            // Progress indicator → stderr (safe for JSON piping)
+            if !is_json {
+                eprintln!("[{}/{}] Analyzing {}", idx, total_files, file_name);
+            }
+
+            let content = match fs::read_to_string(file_path) {
+                Ok(c) => c,
+                Err(_) => return FileAnalysisResult::default(),
+            };
+
+            debug!(target: "sanctifier", file = %file_name, "Scanning Rust source file");
+
+            // Clone Arcs for the closure
+            let analyzer = Arc::clone(&analyzer);
+            let vuln_db = Arc::clone(&vuln_db);
+            let file_name_clone = file_name.clone();
+
+            match run_with_timeout(timeout_dur, move || {
+                analyze_single_file(&analyzer, &vuln_db, &content, &file_name_clone)
+            }) {
+                Some(res) => res,
+                None => {
+                    // Timeout – emit a synthetic finding
+                    warn!(
+                        target: "sanctifier",
+                        file = %file_name,
+                        timeout_secs = timeout_secs,
+                        "Analysis timed out"
+                    );
+                    FileAnalysisResult {
+                        file_path: file_name,
+                        timed_out: true,
+                        ..Default::default()
+                    }
+                }
+            }
+        })
+        .collect();
+
+    // ── Phase 3: sort by file path for deterministic output ──────────────
+    results.sort_by(|a, b| a.file_path.cmp(&b.file_path));
+
+    // ── Phase 4: merge into flat vectors ─────────────────────────────────
     let mut collisions = Vec::new();
     let mut size_warnings = Vec::new();
     let mut unsafe_patterns = Vec::new();
@@ -99,54 +202,26 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
     let mut smt_issues = Vec::new();
     let mut sep41_checked_contracts = Vec::new();
     let mut sep41_issues = Vec::new();
+    let mut timed_out_files: Vec<String> = Vec::new();
 
-    if path.is_dir() {
-        walk_dir(
-            path,
-            &analyzer,
-            &vuln_db,
-            &mut collisions,
-            &mut size_warnings,
-            &mut unsafe_patterns,
-            &mut auth_gaps,
-            &mut panic_issues,
-            &mut arithmetic_issues,
-            &mut custom_matches,
-            &mut vuln_matches,
-            &mut event_issues,
-            &mut unhandled_results,
-            &mut upgrade_reports,
-            &mut smt_issues,
-            &mut sep41_checked_contracts,
-            &mut sep41_issues,
-        )?;
-    } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
-        if let Ok(content) = fs::read_to_string(path) {
-            let file_name = path.display().to_string();
-            debug!(target: "sanctifier", file = %file_name, "Scanning Rust source file");
-            collisions.extend(analyzer.scan_storage_collisions(&content));
-            size_warnings.extend(analyzer.analyze_ledger_size(&content));
-            unsafe_patterns.extend(analyzer.analyze_unsafe_patterns(&content));
-            auth_gaps.extend(analyzer.scan_auth_gaps(&content));
-            panic_issues.extend(analyzer.scan_panics(&content));
-            arithmetic_issues.extend(analyzer.scan_arithmetic_overflow(&content));
-            custom_matches
-                .extend(analyzer.analyze_custom_rules(&content, &analyzer.config.custom_rules));
-            vuln_matches.extend(vuln_db.scan(&content, &file_name));
-            event_issues.extend(analyzer.scan_events(&content));
-            unhandled_results.extend(analyzer.scan_unhandled_results(&content));
-            upgrade_reports.push(analyzer.analyze_upgrade_patterns(&content));
-            smt_issues.extend(analyzer.verify_smt_invariants(&content));
-
-            let sep41_report = analyzer.verify_sep41_interface(&content);
-            if sep41_report.candidate {
-                sep41_checked_contracts.push(file_name.clone());
-                for mut issue in sep41_report.issues {
-                    issue.location = format!("{}:{}", file_name, issue.location);
-                    sep41_issues.push(issue);
-                }
-            }
+    for r in results {
+        if r.timed_out {
+            timed_out_files.push(r.file_path.clone());
         }
+        collisions.extend(r.collisions);
+        size_warnings.extend(r.size_warnings);
+        unsafe_patterns.extend(r.unsafe_patterns);
+        auth_gaps.extend(r.auth_gaps);
+        panic_issues.extend(r.panic_issues);
+        arithmetic_issues.extend(r.arithmetic_issues);
+        custom_matches.extend(r.custom_matches);
+        vuln_matches.extend(r.vuln_matches);
+        event_issues.extend(r.event_issues);
+        unhandled_results.extend(r.unhandled_results);
+        upgrade_reports.extend(r.upgrade_reports);
+        smt_issues.extend(r.smt_issues);
+        sep41_checked_contracts.extend(r.sep41_checked_contracts);
+        sep41_issues.extend(r.sep41_issues);
     }
 
     let total_findings = collisions.len()
@@ -163,7 +238,8 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
             .map(|r| r.findings.len())
             .sum::<usize>()
         + smt_issues.len()
-        + sep41_issues.len();
+        + sep41_issues.len()
+        + timed_out_files.len();
 
     let has_critical =
         !auth_gaps.is_empty() || panic_issues.iter().any(|p| p.issue_type == "panic!");
@@ -209,11 +285,13 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
             "sep41_issues": sep41_issues,
             "vulnerability_db_matches": vuln_matches,
             "vulnerability_db_version": vuln_db.version,
+            "timed_out_files": timed_out_files,
             "metadata": {
                 "version": env!("CARGO_PKG_VERSION"),
                 "timestamp": timestamp,
                 "project_path": path.display().to_string(),
                 "format": "sanctifier-ci-v1",
+                "timeout_secs": timeout_secs,
             },
             "error_codes": finding_codes::all_finding_codes(),
             "summary": {
@@ -229,6 +307,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                 "unhandled_results": unhandled_results.len(),
                 "smt_issues": smt_issues.len(),
                 "sep41_issues": sep41_issues.len(),
+                "timed_out_files": timed_out_files.len(),
                 "has_critical": has_critical,
                 "has_high": has_high,
             },
@@ -314,6 +393,11 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                     "expected_signature": issue.expected_signature,
                     "actual_signature": issue.actual_signature,
                 })).collect::<Vec<_>>(),
+                "timeouts": timed_out_files.iter().map(|f| serde_json::json!({
+                    "code": finding_codes::ANALYSIS_TIMEOUT,
+                    "file": f,
+                    "message": format!("Analysis timed out after {}s", timeout_secs),
+                })).collect::<Vec<_>>(),
             },
         });
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -322,6 +406,25 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
             std::process::exit(1);
         }
         return Ok(());
+    }
+
+    // ── Text output ──────────────────────────────────────────────────────
+
+    if !timed_out_files.is_empty() {
+        println!(
+            "\n{} {} file(s) timed out ({}s limit):",
+            "⏱️".yellow(),
+            timed_out_files.len(),
+            timeout_secs
+        );
+        for f in &timed_out_files {
+            println!(
+                "   {} [{}] {}",
+                "->".red(),
+                finding_codes::ANALYSIS_TIMEOUT.bold(),
+                f
+            );
+        }
     }
 
     if collisions.is_empty() {
@@ -531,6 +634,145 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+// ── Analyse one file (runs inside thread / rayon task) ───────────────────────
+
+fn analyze_single_file(
+    analyzer: &Analyzer,
+    vuln_db: &VulnDatabase,
+    content: &str,
+    file_name: &str,
+) -> FileAnalysisResult {
+    let mut res = FileAnalysisResult {
+        file_path: file_name.to_string(),
+        ..Default::default()
+    };
+
+    let mut c = analyzer.scan_storage_collisions(content);
+    for i in &mut c {
+        i.location = format!("{}:{}", file_name, i.location);
+    }
+    res.collisions = c;
+
+    res.size_warnings = analyzer.analyze_ledger_size(content);
+
+    let mut u = analyzer.analyze_unsafe_patterns(content);
+    for i in &mut u {
+        i.snippet = format!("{}:{}", file_name, i.snippet);
+    }
+    res.unsafe_patterns = u;
+
+    for g in analyzer.scan_auth_gaps(content) {
+        res.auth_gaps.push(format!("{}:{}", file_name, g));
+    }
+
+    let mut p = analyzer.scan_panics(content);
+    for i in &mut p {
+        i.location = format!("{}:{}", file_name, i.location);
+    }
+    res.panic_issues = p;
+
+    let mut a = analyzer.scan_arithmetic_overflow(content);
+    for i in &mut a {
+        i.location = format!("{}:{}", file_name, i.location);
+    }
+    res.arithmetic_issues = a;
+
+    let mut custom = analyzer.analyze_custom_rules(content, &analyzer.config.custom_rules);
+    for m in &mut custom {
+        m.snippet = format!("{}:{}: {}", file_name, m.line, m.snippet);
+    }
+    res.custom_matches = custom;
+
+    res.vuln_matches = vuln_db.scan(content, file_name);
+
+    let mut e = analyzer.scan_events(content);
+    for i in &mut e {
+        i.location = format!("{}:{}", file_name, i.location);
+    }
+    res.event_issues = e;
+
+    let mut r = analyzer.scan_unhandled_results(content);
+    for i in &mut r {
+        i.location = format!("{}:{}", file_name, i.location);
+    }
+    res.unhandled_results = r;
+
+    let mut up = analyzer.analyze_upgrade_patterns(content);
+    for f in &mut up.findings {
+        f.location = format!("{}:{}", file_name, f.location);
+    }
+    res.upgrade_reports.push(up);
+
+    let mut smt = analyzer.verify_smt_invariants(content);
+    for i in &mut smt {
+        i.location = format!("{}:{}", file_name, i.location);
+    }
+    res.smt_issues = smt;
+
+    let sep41_report = analyzer.verify_sep41_interface(content);
+    if sep41_report.candidate {
+        res.sep41_checked_contracts.push(file_name.to_string());
+        for mut issue in sep41_report.issues {
+            issue.location = format!("{}:{}", file_name, issue.location);
+            res.sep41_issues.push(issue);
+        }
+    }
+
+    res
+}
+
+// ── Per-file timeout wrapper ─────────────────────────────────────────────────
+
+/// Run `f` on a dedicated OS thread with an optional deadline.
+/// Returns `None` if the deadline elapses before `f` completes.
+fn run_with_timeout<F, R>(timeout: Option<Duration>, f: F) -> Option<R>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    match timeout {
+        None => Some(f()),
+        Some(dur) => {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let result = f();
+                let _ = tx.send(result);
+            });
+            rx.recv_timeout(dur).ok()
+        }
+    }
+}
+
+// ── Recursive file collection ────────────────────────────────────────────────
+
+/// Walk `dir` recursively, returning all `.rs` file paths while honouring
+/// `ignore_paths`.
+fn collect_rs_files(dir: &Path, ignore_paths: &[String]) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    collect_rs_files_inner(dir, ignore_paths, &mut out);
+    out
+}
+
+fn collect_rs_files_inner(dir: &Path, ignore_paths: &[String], out: &mut Vec<PathBuf>) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let is_ignored = ignore_paths.iter().any(|p| path.ends_with(p));
+            if !is_ignored {
+                collect_rs_files_inner(&path, ignore_paths, out);
+            }
+        } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+            out.push(path);
+        }
+    }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
 fn chrono_timestamp() -> String {
     let now = std::time::SystemTime::now();
     let duration = now
@@ -563,143 +805,6 @@ fn load_config(path: &Path) -> SanctifyConfig {
         }
     }
     SanctifyConfig::default()
-}
-
-#[allow(clippy::too_many_arguments)]
-fn walk_dir(
-    dir: &Path,
-    analyzer: &Analyzer,
-    vuln_db: &VulnDatabase,
-    collisions: &mut Vec<sanctifier_core::StorageCollisionIssue>,
-    size_warnings: &mut Vec<sanctifier_core::SizeWarning>,
-    unsafe_patterns: &mut Vec<sanctifier_core::UnsafePattern>,
-    auth_gaps: &mut Vec<String>,
-    panic_issues: &mut Vec<sanctifier_core::PanicIssue>,
-    arithmetic_issues: &mut Vec<sanctifier_core::ArithmeticIssue>,
-    custom_matches: &mut Vec<sanctifier_core::CustomRuleMatch>,
-    vuln_matches: &mut Vec<VulnMatch>,
-    event_issues: &mut Vec<sanctifier_core::EventIssue>,
-    unhandled_results: &mut Vec<sanctifier_core::UnhandledResultIssue>,
-    upgrade_reports: &mut Vec<sanctifier_core::UpgradeReport>,
-    smt_issues: &mut Vec<sanctifier_core::smt::SmtInvariantIssue>,
-    sep41_checked_contracts: &mut Vec<String>,
-    sep41_issues: &mut Vec<sanctifier_core::Sep41Issue>,
-) -> anyhow::Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            // Skip ignore_paths
-            let is_ignored = analyzer
-                .config
-                .ignore_paths
-                .iter()
-                .any(|p| path.ends_with(p));
-            if is_ignored {
-                continue;
-            }
-
-            walk_dir(
-                &path,
-                analyzer,
-                vuln_db,
-                collisions,
-                size_warnings,
-                unsafe_patterns,
-                auth_gaps,
-                panic_issues,
-                arithmetic_issues,
-                custom_matches,
-                vuln_matches,
-                event_issues,
-                unhandled_results,
-                upgrade_reports,
-                smt_issues,
-                sep41_checked_contracts,
-                sep41_issues,
-            )?;
-        } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
-            if let Ok(content) = fs::read_to_string(&path) {
-                let file_name = path.display().to_string();
-                debug!(target: "sanctifier", file = %file_name, "Scanning Rust source file");
-
-                let mut c = analyzer.scan_storage_collisions(&content);
-                for i in &mut c {
-                    i.location = format!("{}:{}", file_name, i.location);
-                }
-                collisions.extend(c);
-
-                let s = analyzer.analyze_ledger_size(&content);
-                size_warnings.extend(s);
-
-                let mut u = analyzer.analyze_unsafe_patterns(&content);
-                for i in &mut u {
-                    i.snippet = format!("{}:{}", file_name, i.snippet);
-                }
-                unsafe_patterns.extend(u);
-
-                for g in analyzer.scan_auth_gaps(&content) {
-                    auth_gaps.push(format!("{}:{}", file_name, g));
-                }
-
-                let mut p = analyzer.scan_panics(&content);
-                for i in &mut p {
-                    i.location = format!("{}:{}", file_name, i.location);
-                    panic_issues.push(i.clone());
-                }
-
-                let mut a = analyzer.scan_arithmetic_overflow(&content);
-                for i in &mut a {
-                    i.location = format!("{}:{}", file_name, i.location);
-                    arithmetic_issues.push(i.clone());
-                }
-
-                let mut custom =
-                    analyzer.analyze_custom_rules(&content, &analyzer.config.custom_rules);
-                for m in &mut custom {
-                    m.snippet = format!("{}:{}: {}", file_name, m.line, m.snippet);
-                }
-                custom_matches.extend(custom);
-
-                // Scan against vulnerability database
-                vuln_matches.extend(vuln_db.scan(&content, &file_name));
-
-                let mut e = analyzer.scan_events(&content);
-                for i in &mut e {
-                    i.location = format!("{}:{}", file_name, i.location);
-                }
-                event_issues.extend(e);
-
-                let mut r = analyzer.scan_unhandled_results(&content);
-                for i in &mut r {
-                    i.location = format!("{}:{}", file_name, i.location);
-                }
-                unhandled_results.extend(r);
-
-                let mut up = analyzer.analyze_upgrade_patterns(&content);
-                for f in &mut up.findings {
-                    f.location = format!("{}:{}", file_name, f.location);
-                }
-                upgrade_reports.push(up);
-
-                let mut smt = analyzer.verify_smt_invariants(&content);
-                for i in &mut smt {
-                    i.location = format!("{}:{}", file_name, i.location);
-                }
-                smt_issues.extend(smt);
-
-                let sep41_report = analyzer.verify_sep41_interface(&content);
-                if sep41_report.candidate {
-                    sep41_checked_contracts.push(file_name.clone());
-                    for mut issue in sep41_report.issues {
-                        issue.location = format!("{}:{}", file_name, issue.location);
-                        sep41_issues.push(issue);
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 fn is_soroban_project(path: &Path) -> bool {

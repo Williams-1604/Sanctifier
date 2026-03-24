@@ -1,3 +1,7 @@
+//! Contract complexity metrics (cyclomatic complexity, nesting depth, LOC).
+//!
+//! See [`analyze_complexity`] for the main entry point.
+
 // tooling/sanctifier-core/src/complexity.rs
 //
 // Contract Complexity Metrics — Issue #45
@@ -23,20 +27,31 @@ const THRESHOLD_LOC: usize      = 50;
 // Data structures
 // ---------------------------------------------------------------------------
 
+/// Per-function complexity metrics.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FunctionMetrics {
+    /// Fully-qualified function name.
     pub name: String,
+    /// Cyclomatic complexity (branches + 1).
     pub cyclomatic_complexity: u32,
+    /// Number of parameters.
     pub param_count: usize,
+    /// Maximum nesting depth.
     pub max_nesting_depth: u32,
+    /// Lines of code.
     pub loc: usize,
+    /// Human-readable threshold warnings.
     pub warnings: Vec<String>,
 }
 
+/// Aggregate metrics for a single contract source file.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ContractMetrics {
+    /// Path of the analysed file.
     pub contract_path: String,
+    /// Number of top-level dependency imports.
     pub dependency_count: usize,
+    /// Per-function breakdown.
     pub functions: Vec<FunctionMetrics>,
 }
 

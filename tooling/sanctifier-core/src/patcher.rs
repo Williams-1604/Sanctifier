@@ -1,8 +1,12 @@
+//! Source-level auto-patching.
+
 use crate::rules::Patch;
 
+/// Applies [`Patch`]es to source text.
 pub struct Patcher;
 
 impl Patcher {
+    /// Apply a set of non-overlapping patches to `source`.
     pub fn apply_patches(source: &str, patches: &[Patch]) -> String {
         if patches.is_empty() {
             return source.to_string();

@@ -2,9 +2,11 @@ use crate::rules::{Patch, Rule, RuleViolation, Severity};
 use syn::visit::{self, Visit};
 use syn::{parse_str, File, Local, Pat};
 
+/// Rule that detects unused local variables.
 pub struct UnusedVariableRule;
 
 impl UnusedVariableRule {
+    /// Create a new instance.
     pub fn new() -> Self {
         Self
     }

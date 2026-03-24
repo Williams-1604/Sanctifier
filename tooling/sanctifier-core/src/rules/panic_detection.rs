@@ -1,9 +1,11 @@
 use crate::rules::{Rule, RuleViolation, Severity};
 use syn::{parse_str, File};
 
+/// Rule that detects `panic!`, `unwrap()`, and `expect()` calls.
 pub struct PanicDetectionRule;
 
 impl PanicDetectionRule {
+    /// Create a new instance.
     pub fn new() -> Self {
         Self
     }
@@ -15,10 +17,14 @@ impl Default for PanicDetectionRule {
     }
 }
 
+/// A detected panic-inducing call.
 #[derive(Debug, Clone, Serialize)]
 pub struct PanicIssue {
+    /// Name of the enclosing function.
     pub function_name: String,
+    /// Kind of issue (`"unwrap"`, `"expect"`, `"panic"`).
     pub issue_type: String,
+    /// Source location.
     pub location: String,
 }
 

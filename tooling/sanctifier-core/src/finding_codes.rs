@@ -1,27 +1,58 @@
+//! Canonical finding codes emitted by Sanctifier analysis passes.
+//!
+//! Each constant (`S000` – `S012`) maps to a single diagnostic category.
+//! Call `all_finding_codes()` to retrieve the full catalogue at runtime.
+
 use serde::Serialize;
 
+/// Analysis timed out for a file (see `--timeout`).
+pub const ANALYSIS_TIMEOUT: &str = "S000";
+/// Missing authentication guard in a privileged function.
 pub const AUTH_GAP: &str = "S001";
+/// `panic!` / `unwrap` / `expect` usage that may abort.
 pub const PANIC_USAGE: &str = "S002";
+/// Unchecked arithmetic with overflow / underflow risk.
 pub const ARITHMETIC_OVERFLOW: &str = "S003";
+/// Ledger entry size exceeds or approaches the configured limit.
 pub const LEDGER_SIZE_RISK: &str = "S004";
+/// Potential storage-key collision across data paths.
 pub const STORAGE_COLLISION: &str = "S005";
+/// Potentially unsafe language / runtime pattern.
 pub const UNSAFE_PATTERN: &str = "S006";
+/// User-defined custom rule matched contract source.
 pub const CUSTOM_RULE_MATCH: &str = "S007";
+/// Inconsistent topic counts or sub-optimal gas patterns in events.
 pub const EVENT_INCONSISTENCY: &str = "S008";
+/// A `Result` return value is not consumed or handled.
 pub const UNHANDLED_RESULT: &str = "S009";
+/// Potential security risk in contract upgrade / admin mechanisms.
 pub const UPGRADE_RISK: &str = "S010";
+/// Z3 proved a mathematical invariant violation.
 pub const SMT_INVARIANT_VIOLATION: &str = "S011";
+/// SEP-41 token interface deviation.
 pub const SEP41_INTERFACE_DEVIATION: &str = "S012";
 
+/// A single finding-code entry with machine-readable code, category, and
+/// human-readable description.
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct FindingCode {
+    /// Short code such as `"S001"`.
     pub code: &'static str,
+    /// Broad category (e.g. `"authentication"`).
     pub category: &'static str,
+    /// One-line description of the finding.
     pub description: &'static str,
 }
 
+/// Returns every finding code known to this version of Sanctifier.
 pub fn all_finding_codes() -> Vec<FindingCode> {
     vec![
+        FindingCode {
+            code: ANALYSIS_TIMEOUT,
+            category: "timeout",
+            description: "Analysis of a file was aborted because it exceeded the per-file timeout",
+        },
         FindingCode {
             code: AUTH_GAP,
             category: "authentication",

@@ -1,6 +1,7 @@
 use crate::rules::{Rule, RuleViolation, Severity};
 use syn::{parse_str, Fields, File, Item, Meta, Type};
 
+/// Rule that estimates `#[contracttype]` storage sizes against ledger limits.
 pub struct LedgerSizeRule {
     ledger_limit: usize,
     approaching_threshold: f64,
@@ -8,6 +9,7 @@ pub struct LedgerSizeRule {
 }
 
 impl LedgerSizeRule {
+    /// Create with default limits (64 kB, 80 % threshold).
     pub fn new() -> Self {
         Self {
             ledger_limit: 64000,
@@ -24,25 +26,31 @@ impl Default for LedgerSizeRule {
 }
 
 impl LedgerSizeRule {
+    /// Override the byte limit.
     pub fn with_limit(mut self, limit: usize) -> Self {
         self.ledger_limit = limit;
         self
     }
 
+    /// Set the "approaching" fraction (0.0–1.0).
     pub fn with_approaching_threshold(mut self, threshold: f64) -> Self {
         self.approaching_threshold = threshold;
         self
     }
 
+    /// Enable or disable strict mode.
     pub fn with_strict_mode(mut self, strict: bool) -> Self {
         self.strict_mode = strict;
         self
     }
 }
 
+/// Severity of a ledger-size issue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SizeWarningLevel {
+    /// Estimated size exceeds the hard limit.
     ExceedsLimit,
+    /// Estimated size is approaching the limit.
     ApproachingLimit,
 }
 

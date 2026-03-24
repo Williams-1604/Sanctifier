@@ -1,33 +1,52 @@
+//! SEP-41 token-interface compliance verification.
+
 use quote::quote;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 use syn::visit::{self, Visit};
 use syn::{parse_str, File, FnArg, Item, Pat, ReturnType, Type};
 
+/// The kind of SEP-41 compliance issue.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Sep41IssueKind {
+    /// A required function is absent.
     MissingFunction,
+    /// A function exists but its signature does not match the specification.
     SignatureMismatch,
+    /// A function that should authorize a caller does not.
     AuthorizationMismatch,
 }
 
+/// A single SEP-41 compliance issue.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Sep41Issue {
+    /// Name of the function with the issue.
     pub function_name: String,
+    /// Category of the issue.
     pub kind: Sep41IssueKind,
+    /// Source location.
     pub location: String,
+    /// Human-readable description.
     pub message: String,
+    /// The signature required by the specification.
     pub expected_signature: String,
+    /// The actual signature found (if any).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub actual_signature: Option<String>,
 }
 
+/// Result of a full SEP-41 compliance check.
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct Sep41VerificationReport {
+    /// Whether the contract looks like a SEP-41 token at all.
     pub candidate: bool,
+    /// `true` if every required function is present and correct.
     pub compliant: bool,
+    /// Functions that passed verification.
     pub verified_functions: Vec<String>,
+    /// All detected issues.
     pub issues: Vec<Sep41Issue>,
 }
 
@@ -132,6 +151,7 @@ const SEP41_FUNCTIONS: [ExpectedSep41Function; 10] = [
     },
 ];
 
+/// Verify that `source` implements all 10 required SEP-41 functions.
 pub fn verify(source: &str) -> Sep41VerificationReport {
     let file = match parse_str::<File>(source) {
         Ok(file) => file,

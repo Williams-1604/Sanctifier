@@ -1,14 +1,21 @@
+//! Heuristic gas / resource estimation for Soroban contracts.
+
 use serde::Serialize;
 use syn::visit::{self, Visit};
 use syn::{parse_str, File, Item, Type};
 
+/// Estimated resource usage for a single function.
 #[derive(Debug, Serialize, Clone, Default)]
 pub struct GasEstimationReport {
+    /// Name of the function.
     pub function_name: String,
+    /// Estimated CPU instruction count.
     pub estimated_instructions: usize,
+    /// Estimated memory consumption in bytes.
     pub estimated_memory_bytes: usize,
 }
 
+/// Heuristic gas estimator.
 pub struct GasEstimator {}
 
 impl Default for GasEstimator {
@@ -18,10 +25,12 @@ impl Default for GasEstimator {
 }
 
 impl GasEstimator {
+    /// Create a new estimator.
     pub fn new() -> Self {
         Self {}
     }
 
+    /// Estimate gas for every public function in `source`.
     pub fn estimate_contract(&self, source: &str) -> Vec<GasEstimationReport> {
         let file = match parse_str::<File>(source) {
             Ok(f) => f,
