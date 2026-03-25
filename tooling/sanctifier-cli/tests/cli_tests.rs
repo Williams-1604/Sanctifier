@@ -188,7 +188,14 @@ fn test_init_overwrites_when_force_is_set() {
 #[test]
 fn test_webhook_failure_is_non_fatal() {
     let mut server = Server::new();
-    let mock = server.mock("POST", "/notify").with_status(500).create();
+    let mock = server
+        .mock("POST", "/notify")
+        .match_query(mockito::Matcher::UrlEncoded(
+            "sanctifier_provider".into(),
+            "discord".into(),
+        ))
+        .with_status(500)
+        .create();
 
     let fixture_path = env::current_dir()
         .unwrap()
