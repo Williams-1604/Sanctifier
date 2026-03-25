@@ -185,6 +185,100 @@ fn test_init_overwrites_when_force_is_set() {
     assert!(content.contains("ignore_paths"));
 }
 
+/// Verifies that `sanctifier report <file>` prints a Markdown document to
+/// stdout that contains all required top-level sections.
+#[test]
+fn test_report_markdown_stdout() {
+    let fixture_path = env::current_dir()
+        .unwrap()
+        .join("tests/fixtures/vulnerable_contract.rs");
+
+    Command::cargo_bin("sanctifier")
+        .unwrap()
+        .arg("report")
+        .arg(fixture_path)
+        .env_remove("RUST_LOG")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("# Sanctifier Security Report"))
+        .stdout(predicates::str::contains("## Summary"))
+        .stdout(predicates::str::contains("## Findings"))
+        .stdout(predicates::str::contains("**Contract path**"))
+        .stdout(predicates::str::contains("**Analysis date**"))
+        .stdout(predicates::str::contains("**Tool version**"));
+}
+
+/// Verifies that `sanctifier report --output <file>.md` writes a Markdown
+/// document to disk with the expected content.
+#[test]
+fn test_report_writes_markdown_file() {
+    let temp_dir = tempdir().unwrap();
+    let out_path = temp_dir.path().join("report.md");
+    let fixture_path = env::current_dir()
+        .unwrap()
+        .join("tests/fixtures/vulnerable_contract.rs");
+
+    Command::cargo_bin("sanctifier")
+        .unwrap()
+        .arg("report")
+        .arg(fixture_path)
+        .arg("--output")
+        .arg(&out_path)
+        .env_remove("RUST_LOG")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Report written to"));
+
+    let content = fs::read_to_string(&out_path).expect("report.md should have been created");
+    assert!(
+        content.contains("# Sanctifier Security Report"),
+        "Markdown report should have an H1 header"
+    );
+    assert!(
+        content.contains("## Summary"),
+        "Markdown report should have a Summary section"
+    );
+    assert!(
+        content.contains("## Findings"),
+        "Markdown report should have a Findings section"
+    );
+}
+
+/// Verifies that `sanctifier report --output <file>.html` writes an HTML
+/// document with the expected structure.
+#[test]
+fn test_report_writes_html_file() {
+    let temp_dir = tempdir().unwrap();
+    let out_path = temp_dir.path().join("report.html");
+    let fixture_path = env::current_dir()
+        .unwrap()
+        .join("tests/fixtures/vulnerable_contract.rs");
+
+    Command::cargo_bin("sanctifier")
+        .unwrap()
+        .arg("report")
+        .arg(fixture_path)
+        .arg("--output")
+        .arg(&out_path)
+        .env_remove("RUST_LOG")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&out_path).expect("report.html should have been created");
+    assert!(
+        content.contains("<!DOCTYPE html>"),
+        "HTML report should start with DOCTYPE"
+    );
+    assert!(
+        content.contains("Sanctifier Security Report"),
+        "HTML report should contain the title"
+    );
+    assert!(
+        content.contains("<h2>Summary</h2>"),
+        "HTML report should have a Summary heading"
+    );
+}
+
 #[test]
 fn test_webhook_failure_is_non_fatal() {
     let mut server = Server::new();

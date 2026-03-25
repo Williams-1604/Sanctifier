@@ -23,12 +23,8 @@ pub enum Commands {
     Analyze(commands::analyze::AnalyzeArgs),
     /// Generate a dynamic Sanctifier status badge
     Badge(commands::badge::BadgeArgs),
-    /// Generate a security report
-    Report {
-        /// Output file path
-        #[arg(short, long)]
-        output: Option<std::path::PathBuf>,
-    },
+    /// Generate a Markdown or HTML security report
+    Report(commands::report::ReportArgs),
     /// Initialize Sanctifier in a new project
     Init(commands::init::InitArgs),
     /// Generate a Graphviz DOT call graph of cross-contract calls (env.invoke_contract)
@@ -58,12 +54,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Badge(args) => {
             commands::badge::exec(args)?;
         }
-        Commands::Report { output } => {
-            if let Some(p) = output {
-                println!("Report saved to {:?}", p);
-            } else {
-                println!("Report printed to stdout.");
-            }
+        Commands::Report(args) => {
+            commands::report::exec(args)?;
         }
         Commands::Init(args) => {
             commands::init::exec(args, None)?;

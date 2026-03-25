@@ -47,23 +47,23 @@ pub struct AnalyzeArgs {
 
 /// All findings produced by analysing a single `.rs` file.
 #[derive(Default)]
-struct FileAnalysisResult {
-    file_path: String,
-    collisions: Vec<sanctifier_core::StorageCollisionIssue>,
-    size_warnings: Vec<sanctifier_core::SizeWarning>,
-    unsafe_patterns: Vec<sanctifier_core::UnsafePattern>,
-    auth_gaps: Vec<String>,
-    panic_issues: Vec<sanctifier_core::PanicIssue>,
-    arithmetic_issues: Vec<sanctifier_core::ArithmeticIssue>,
-    custom_matches: Vec<sanctifier_core::CustomRuleMatch>,
-    vuln_matches: Vec<VulnMatch>,
-    event_issues: Vec<sanctifier_core::EventIssue>,
-    unhandled_results: Vec<sanctifier_core::UnhandledResultIssue>,
-    upgrade_reports: Vec<sanctifier_core::UpgradeReport>,
-    smt_issues: Vec<sanctifier_core::smt::SmtInvariantIssue>,
-    sep41_checked_contracts: Vec<String>,
-    sep41_issues: Vec<sanctifier_core::Sep41Issue>,
-    timed_out: bool,
+pub(crate) struct FileAnalysisResult {
+    pub(crate) file_path: String,
+    pub(crate) collisions: Vec<sanctifier_core::StorageCollisionIssue>,
+    pub(crate) size_warnings: Vec<sanctifier_core::SizeWarning>,
+    pub(crate) unsafe_patterns: Vec<sanctifier_core::UnsafePattern>,
+    pub(crate) auth_gaps: Vec<String>,
+    pub(crate) panic_issues: Vec<sanctifier_core::PanicIssue>,
+    pub(crate) arithmetic_issues: Vec<sanctifier_core::ArithmeticIssue>,
+    pub(crate) custom_matches: Vec<sanctifier_core::CustomRuleMatch>,
+    pub(crate) vuln_matches: Vec<VulnMatch>,
+    pub(crate) event_issues: Vec<sanctifier_core::EventIssue>,
+    pub(crate) unhandled_results: Vec<sanctifier_core::UnhandledResultIssue>,
+    pub(crate) upgrade_reports: Vec<sanctifier_core::UpgradeReport>,
+    pub(crate) smt_issues: Vec<sanctifier_core::smt::SmtInvariantIssue>,
+    pub(crate) sep41_checked_contracts: Vec<String>,
+    pub(crate) sep41_issues: Vec<sanctifier_core::Sep41Issue>,
+    pub(crate) timed_out: bool,
 }
 
 // ── Entry point ──────────────────────────────────────────────────────────────
@@ -637,7 +637,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
 
 // ── Analyse one file (runs inside thread / rayon task) ───────────────────────
 
-fn analyze_single_file(
+pub(crate) fn analyze_single_file(
     analyzer: &Analyzer,
     vuln_db: &VulnDatabase,
     content: &str,
@@ -726,7 +726,7 @@ fn analyze_single_file(
 
 /// Run `f` on a dedicated OS thread with an optional deadline.
 /// Returns `None` if the deadline elapses before `f` completes.
-fn run_with_timeout<F, R>(timeout: Option<Duration>, f: F) -> Option<R>
+pub(crate) fn run_with_timeout<F, R>(timeout: Option<Duration>, f: F) -> Option<R>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
@@ -748,7 +748,7 @@ where
 
 /// Walk `dir` recursively, returning all `.rs` file paths while honouring
 /// `ignore_paths`.
-fn collect_rs_files(dir: &Path, ignore_paths: &[String]) -> Vec<PathBuf> {
+pub(crate) fn collect_rs_files(dir: &Path, ignore_paths: &[String]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     collect_rs_files_inner(dir, ignore_paths, &mut out);
     out
@@ -783,7 +783,7 @@ fn chrono_timestamp() -> String {
     format!("{}", secs)
 }
 
-fn load_config(path: &Path) -> SanctifyConfig {
+pub(crate) fn load_config(path: &Path) -> SanctifyConfig {
     let mut current = if path.is_file() {
         path.parent()
             .map(|p| p.to_path_buf())
@@ -808,7 +808,7 @@ fn load_config(path: &Path) -> SanctifyConfig {
     SanctifyConfig::default()
 }
 
-fn is_soroban_project(path: &Path) -> bool {
+pub(crate) fn is_soroban_project(path: &Path) -> bool {
     // Basic heuristics for tests.
     if path.extension().and_then(|s| s.to_str()) == Some("rs") {
         return true;
