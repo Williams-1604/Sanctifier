@@ -39,23 +39,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Install dependencies (Linux)
+      - name: Install Z3
+        uses: z3prover/setup-z3@v1
+        with:
+          z3-version: 4.12.2
+
+      - name: Install DBus (Linux only)
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libz3-dev libdbus-1-dev
-
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: brew install z3
-
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          choco install z3
-          # Path adjustment for Z3 if needed
-          echo "Z3_SYS_Z3_HEADER=C:\tools\z3\include\z3.h" >> $GITHUB_ENV
-          echo "LIBRARY_PATH=C:\tools\z3\bin" >> $GITHUB_ENV
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev
 
       - name: Check formatting
         run: cargo fmt --all --check
