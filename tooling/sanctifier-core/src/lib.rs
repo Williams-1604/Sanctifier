@@ -252,6 +252,14 @@ fn has_attr(attrs: &[syn::Attribute], name: &str) -> bool {
     })
 }
 
+/// Returns `true` when `attrs` contains `#[cfg(test)]`.
+fn is_cfg_test_attrs(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|a| {
+        a.path().is_ident("cfg")
+            && quote::quote!(#a).to_string().contains("test")
+    })
+}
+
 fn is_upgrade_or_admin_fn(name: &str) -> bool {
     let lower = name.to_lowercase();
     matches!(
@@ -696,13 +704,38 @@ impl Analyzer {
 
         let mut issues = Vec::new();
         for item in &file.items {
-            if let Item::Impl(i) = item {
-                for impl_item in &i.items {
-                    if let syn::ImplItem::Fn(f) = impl_item {
-                        let fn_name = f.sig.ident.to_string();
-                        self.check_fn_panics(&f.block, &fn_name, &mut issues);
+            match item {
+                Item::Impl(i) => {
+                    if is_cfg_test_attrs(&i.attrs) {
+                        continue;
+                    }
+                    for impl_item in &i.items {
+                        if let syn::ImplItem::Fn(f) = impl_item {
+                            if has_attr(&f.attrs, "test") {
+                                continue;
+                            }
+                            let fn_name = f.sig.ident.to_string();
+                            self.check_fn_panics(&f.block, &fn_name, &mut issues);
+                        }
                     }
                 }
+                Item::Mod(m) => {
+                    if is_cfg_test_attrs(&m.attrs) {
+                        continue;
+                    }
+                    if let Some((_, items)) = &m.content {
+                        for item in items {
+                            if let Item::Fn(f) = item {
+                                if has_attr(&f.attrs, "test") {
+                                    continue;
+                                }
+                                let fn_name = f.sig.ident.to_string();
+                                self.check_fn_panics(&f.block, &fn_name, &mut issues);
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -1095,6 +1128,8 @@ impl Analyzer {
             issues: Vec::new(),
             current_fn: None,
             seen: HashSet::new(),
+            index_depth: 0,
+            test_mod_depth: 0,
         };
         visitor.visit_file(&file);
         visitor.issues
@@ -1933,6 +1968,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "smt")]
     fn test_verify_smt_invariants_reports_external_contract_boundaries() {
         let analyzer = Analyzer::new(SanctifyConfig::default());
         let source = r#"
