@@ -64,7 +64,7 @@ jobs:
       - name: Install Soroban CLI
         run: |
           sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev
+          sudo apt-get install -y libdbus-1-dev pkg-config
           cargo install --locked soroban-cli || true
           soroban --version
 
