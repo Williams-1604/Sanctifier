@@ -70,6 +70,7 @@ use syn::{parse_str, Fields, File, Item, Meta, Type};
 pub use complexity::{analyze_complexity, analyze_complexity_from_source, render_text_report};
 pub use rules::{Rule, RuleRegistry, RuleViolation, Severity};
 pub use sep41::{Sep41Issue, Sep41IssueKind, Sep41VerificationReport};
+pub use smt::SmtInvariantIssue;
 
 // Redundant imports removed
 use crate::rules::arithmetic_overflow::ArithVisitor;

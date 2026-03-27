@@ -13,7 +13,7 @@
 //   - Lines of code (LOC)
 //   - Number of extern crate / use dependencies (file-level)
 
-use syn::{visit::Visit, File, ImplItem, ImplItemFn, ItemExternCrate, ItemFn, ItemUse};
+use syn::{visit::Visit, File, ImplItemFn, ItemExternCrate, ItemFn, ItemUse};
 
 // ---------------------------------------------------------------------------
 // Thresholds (warn if exceeded)
