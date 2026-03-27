@@ -611,3 +611,9 @@ mod tests {
         assert!(report.issues.is_empty());
     }
 }
+
+impl Sep41Issue {
+    pub fn severity(&self) -> crate::finding_codes::FindingSeverity {
+        crate::finding_codes::FindingSeverity::Critical
+    }
+}

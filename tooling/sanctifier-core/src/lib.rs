@@ -371,18 +371,7 @@ pub struct UnhandledResultIssue {
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 /// Severity level for user-defined custom rules.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum RuleSeverity {
-    /// Informational.
-    Info,
-    /// Default severity.
-    #[default]
-    Warning,
-    /// Hard error.
-    Error,
-}
+pub type RuleSeverity = crate::finding_codes::FindingSeverity;
 
 /// A user-defined regex-based rule loaded from `.sanctify.toml`.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -608,7 +597,7 @@ impl Analyzer {
 
     /// Detect public functions that mutate storage or call external contracts
     /// without an authentication check.
-    pub fn scan_auth_gaps(&self, source: &str) -> Vec<String> {
+    pub fn scan_auth_gaps(&self, source: &str) -> Vec<AuthGapIssue> {
         with_panic_guard(|| self.scan_auth_gaps_impl(source))
     }
 
@@ -689,7 +678,7 @@ impl Analyzer {
         estimator.estimate_contract(source)
     }
 
-    fn scan_auth_gaps_impl(&self, source: &str) -> Vec<String> {
+    fn scan_auth_gaps_impl(&self, source: &str) -> Vec<AuthGapIssue> {
         let file = match parse_str::<File>(source) {
             Ok(f) => f,
             Err(_) => return vec![],
@@ -709,7 +698,7 @@ impl Analyzer {
                             let mut summary = FunctionSecuritySummary::default();
                             self.check_fn_body(&f.block, &mut summary);
                             if summary.has_sensitive_action() && !summary.has_auth {
-                                gaps.push(fn_name);
+                                gaps.push(AuthGapIssue { function_name: fn_name });
                             }
                         }
                     }
@@ -2291,7 +2280,7 @@ mod tests {
                 CustomRule {
                     name: "no_unsafe".to_string(),
                     pattern: "unsafe".to_string(),
-                    severity: RuleSeverity::Error,
+                    severity: Rulecrate::finding_codes::FindingSeverity::Critical,
                 },
                 CustomRule {
                     name: "todo_comment".to_string(),
@@ -2320,7 +2309,7 @@ mod tests {
         assert_eq!(todo_match.severity, RuleSeverity::Info);
 
         let unsafe_match = matches.iter().find(|m| m.rule_name == "no_unsafe").unwrap();
-        assert_eq!(unsafe_match.severity, RuleSeverity::Error);
+        assert_eq!(unsafe_match.severity, Rulecrate::finding_codes::FindingSeverity::Critical);
     }
 
     #[test]
@@ -3156,3 +3145,70 @@ impl MyContract {
         assert!(collisions.is_empty());
     }
 }
+
+
+
+impl SmtInvariantIssue {
+    pub fn severity(&self) -> crate::finding_codes::FindingSeverity {
+        crate::finding_codes::FindingSeverity::Critical
+    }
+}
+impl SizeWarning {
+    pub fn severity(&self) -> crate::finding_codes::FindingSeverity {
+        if self.level == SizeWarningLevel::ExceedsLimit {
+            crate::finding_codes::FindingSeverity::Critical
+        } else {
+            crate::finding_codes::FindingSeverity::High
+        }
+    }
+}
+impl PanicIssue {
+    pub fn severity(&self) -> crate::finding_codes::FindingSeverity {
+        if self.issue_type == "panic!" || self.issue_type == "unwrap" || self.issue_type == "expect" {
+            crate::finding_codes::FindingSeverity::Critical
+        } else {
+            crate::finding_codes::FindingSeverity::High
+        }
+    }
+}
+impl UnsafePattern {
+    pub fn severity(&self) -> crate::finding_codes::FindingSeverity {
+        crate::finding_codes::FindingSeverity::High
+    }
+}
+impl UpgradeFinding {
+    pub fn severity(&self) -> crate::finding_codes::FindingSeverity {
+        crate::finding_codes::FindingSeverity::High
+    }
+}
+impl ArithmeticIssue {
+    pub fn severity(&self) -> crate::finding_codes::FindingSeverity {
+        crate::finding_codes::FindingSeverity::High
+    }
+}
+impl StorageCollisionIssue {
+    pub fn severity(&self) -> crate::finding_codes::FindingSeverity {
+        crate::finding_codes::FindingSeverity::High
+    }
+}
+impl EventIssue {
+    pub fn severity(&self) -> crate::finding_codes::FindingSeverity {
+        crate::finding_codes::FindingSeverity::High
+    }
+}
+impl UnhandledResultIssue {
+    pub fn severity(&self) -> crate::finding_codes::FindingSeverity {
+        crate::finding_codes::FindingSeverity::High
+    }
+}
+
+#[derive(Debug, serde::Serialize, Clone, PartialEq)]
+pub struct AuthGapIssue {
+    pub function_name: String,
+}
+impl AuthGapIssue {
+    pub fn severity(&self) -> crate::finding_codes::FindingSeverity {
+        crate::finding_codes::FindingSeverity::Critical
+    }
+}
+

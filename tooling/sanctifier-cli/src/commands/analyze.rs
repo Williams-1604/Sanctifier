@@ -6,10 +6,16 @@ use clap::{Args, ValueEnum};
 use colored::*;
 use rayon::prelude::*;
 use sanctifier_core::finding_codes;
-use sanctifier_core::{Analyzer, ContractCallEdge, SanctifyConfig, SizeWarningLevel};
+use sanctifier_core::{Analyzer, SanctifyConfig, SizeWarningLevel};
 use serde_json;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tracing::{debug, error, info, warn};
+
+use crate::vulndb::{VulnDatabase, VulnMatch};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -87,11 +93,10 @@ pub struct AnalyzeArgs {
 #[derive(Default)]
 pub(crate) struct FileAnalysisResult {
     pub(crate) file_path: String,
-    pub(crate) call_graph: Vec<ContractCallEdge>,
     pub(crate) collisions: Vec<sanctifier_core::StorageCollisionIssue>,
     pub(crate) size_warnings: Vec<sanctifier_core::SizeWarning>,
     pub(crate) unsafe_patterns: Vec<sanctifier_core::UnsafePattern>,
-    pub(crate) auth_gaps: Vec<String>,
+    pub(crate) auth_gaps: Vec<sanctifier_core::AuthGapIssue>,
     pub(crate) panic_issues: Vec<sanctifier_core::PanicIssue>,
     pub(crate) arithmetic_issues: Vec<sanctifier_core::ArithmeticIssue>,
     pub(crate) custom_matches: Vec<sanctifier_core::CustomRuleMatch>,
@@ -108,6 +113,7 @@ pub(crate) struct FileAnalysisResult {
 // ── Entry point ──────────────────────────────────────────────────────────────
 
 pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
+    let path = &args.path;
     let mut path = args.path.clone();
 
     // Normalize path separators: ensure backslashes provided by users familiar with Windows
@@ -125,6 +131,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
     let is_json = format == "json";
     let timeout_secs = args.timeout;
 
+    if !is_soroban_project(path) {
     let start = Instant::now();
 
     if !is_soroban_project(&path) {
@@ -147,7 +154,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
     info!(target: "sanctifier", path = %path.display(), "Valid Soroban project found");
     info!(target: "sanctifier", path = %path.display(), "Analyzing contract");
 
-    let mut config = load_config(&path);
+    let mut config = load_config(path);
     config.ledger_limit = args.limit;
     let analyzer = Arc::new(Analyzer::new(config));
 
@@ -174,7 +181,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     // ── Phase 1: collect all .rs file paths ──────────────────────────────
     let rs_files = if path.is_dir() {
-        collect_rs_files(&path, &analyzer.config.ignore_paths)
+        collect_rs_files(path, &analyzer.config.ignore_paths)
     } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
         vec![path.clone()]
     } else {
@@ -242,13 +249,13 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     // ── Phase 4: merge into flat vectors ─────────────────────────────────
     let mut collisions = Vec::new();
-    let mut call_graph = Vec::new();
     let mut size_warnings = Vec::new();
     let mut unsafe_patterns = Vec::new();
     let mut auth_gaps = Vec::new();
     let mut panic_issues = Vec::new();
     let mut arithmetic_issues = Vec::new();
     let mut custom_matches = Vec::new();
+    let mut vuln_matches: Vec<VulnMatch> = Vec::new();
     let mut vuln_matches = Vec::new();
     let mut event_issues = Vec::new();
     let mut unhandled_results = Vec::new();
@@ -256,6 +263,12 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
     let mut smt_issues = Vec::new();
     let mut sep41_checked_contracts = Vec::new();
     let mut sep41_issues = Vec::new();
+    let mut timed_out_files: Vec<String> = Vec::new();
+
+    for r in results {
+        if r.timed_out {
+            timed_out_files.push(r.file_path.clone());
+        }
     let mut timed_out_files = Vec::new();
 
     for r in results {
@@ -296,6 +309,19 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
         + sep41_issues.len()
         + timed_out_files.len();
 
+    let has_critical = auth_gaps.iter().any(|i| i.severity() == finding_codes::FindingSeverity::Critical)
+        || panic_issues.iter().any(|i| i.severity() == finding_codes::FindingSeverity::Critical)
+        || smt_issues.iter().any(|i| i.severity() == finding_codes::FindingSeverity::Critical)
+        || sep41_issues.iter().any(|i| i.severity() == finding_codes::FindingSeverity::Critical)
+        || size_warnings.iter().any(|i| i.severity() == finding_codes::FindingSeverity::Critical);
+
+    let has_high = arithmetic_issues.iter().any(|i| i.severity() == finding_codes::FindingSeverity::High)
+        || panic_issues.iter().any(|i| i.severity() == finding_codes::FindingSeverity::High)
+        || size_warnings.iter().any(|i| i.severity() == finding_codes::FindingSeverity::High)
+        || unsafe_patterns.iter().any(|i| i.severity() == finding_codes::FindingSeverity::High)
+        || upgrade_reports.iter().any(|r| r.findings.iter().any(|f| f.severity() == finding_codes::FindingSeverity::High))
+        || event_issues.iter().any(|i| i.severity() == finding_codes::FindingSeverity::High)
+        || unhandled_results.iter().any(|i| i.severity() == finding_codes::FindingSeverity::High);
     let has_critical =
         !auth_gaps.is_empty() || panic_issues.iter().any(|p| p.issue_type == "panic!");
     let has_high = !arithmetic_issues.is_empty()
@@ -367,6 +393,10 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
         warn!(target: "sanctifier", error = %err, "Failed to initialize webhook client");
     }
 
+    if is_json {
+        let report = serde_json::json!({
+            "schema_version": "1.0.0",
+            "storage_collisions": collisions,
     let duration_ms = start.elapsed().as_millis() as u64;
     let _rules_executed: usize = 6;
 
@@ -440,6 +470,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                     "key_type": c.key_type,
                     "location": c.location,
                     "message": c.message,
+                    "severity": c.severity(),
                 })).collect::<Vec<_>>(),
                 "ledger_size_warnings": size_warnings.iter().map(|w| serde_json::json!({
                     "code": finding_codes::LEDGER_SIZE_RISK,
@@ -447,12 +478,14 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                     "estimated_size": w.estimated_size,
                     "limit": w.limit,
                     "level": w.level,
+                    "severity": w.severity(),
                 })).collect::<Vec<_>>(),
                 "unsafe_patterns": unsafe_patterns.iter().map(|p| serde_json::json!({
                     "code": finding_codes::UNSAFE_PATTERN,
                     "pattern_type": p.pattern_type,
                     "line": p.line,
                     "snippet": p.snippet,
+                    "severity": p.severity(),
                 })).collect::<Vec<_>>(),
                 "auth_gaps": auth_gaps.iter().map(|g| serde_json::json!({
                     "code": finding_codes::AUTH_GAP,
@@ -463,6 +496,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                     "function_name": p.function_name,
                     "issue_type": p.issue_type,
                     "location": p.location,
+                    "severity": p.severity(),
                 })).collect::<Vec<_>>(),
                 "arithmetic_issues": arithmetic_issues.iter().map(|a| serde_json::json!({
                     "code": finding_codes::ARITHMETIC_OVERFLOW,
@@ -470,6 +504,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                     "operation": a.operation,
                     "suggestion": a.suggestion,
                     "location": a.location,
+                    "severity": a.severity(),
                 })).collect::<Vec<_>>(),
                 "custom_rules": custom_matches.iter().map(|m| serde_json::json!({
                     "code": finding_codes::CUSTOM_RULE_MATCH,
@@ -484,6 +519,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                     "issue_type": e.issue_type,
                     "location": e.location,
                     "message": e.message,
+                    "severity": e.severity(),
                 })).collect::<Vec<_>>(),
                 "unhandled_results": unhandled_results.iter().map(|r| serde_json::json!({
                     "code": finding_codes::UNHANDLED_RESULT,
@@ -491,6 +527,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                     "call_expression": r.call_expression,
                     "location": r.location,
                     "message": r.message,
+                    "severity": r.severity(),
                 })).collect::<Vec<_>>(),
                 "upgrade_risks": upgrade_reports.iter().flat_map(|r| &r.findings).map(|f| serde_json::json!({
                     "code": finding_codes::UPGRADE_RISK,
@@ -499,12 +536,14 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                     "location": f.location,
                     "message": f.message,
                     "suggestion": f.suggestion,
+                    "severity": f.severity(),
                 })).collect::<Vec<_>>(),
                 "smt_issues": smt_issues.iter().map(|s| serde_json::json!({
                     "code": finding_codes::SMT_INVARIANT_VIOLATION,
                     "function_name": s.function_name,
                     "description": s.description,
                     "location": s.location,
+                    "severity": s.severity(),
                 })).collect::<Vec<_>>(),
                 "sep41_issues": sep41_issues.iter().map(|issue| serde_json::json!({
                     "code": finding_codes::SEP41_INTERFACE_DEVIATION,
@@ -514,6 +553,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                     "message": issue.message,
                     "expected_signature": issue.expected_signature,
                     "actual_signature": issue.actual_signature,
+                    "severity": issue.severity(),
                 })).collect::<Vec<_>>(),
                 "timeouts": timed_out_files.iter().map(|f| serde_json::json!({
                     "code": finding_codes::ANALYSIS_TIMEOUT,
@@ -573,12 +613,13 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
         println!("{} No authentication gaps found.", "✅".green());
     } else {
         println!("\n{} Found potential Authentication Gaps!", "⚠️".yellow());
-        for gap in auth_gaps {
+        for gap in &auth_gaps {
+            let gap_str = gap.function_name.clone();
             println!(
                 "   {} [{}] Function: {}",
                 "->".red(),
                 finding_codes::AUTH_GAP.bold(),
-                gap.bold()
+                gap_str.bold()
             );
         }
     }
@@ -752,11 +793,6 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
     }
 
     println!("\n{} Static analysis complete.", "✨".green());
-    println!(
-        "⏱  Analysis completed in {:.1}s ({} files)",
-        duration_ms as f64 / 1000.0,
-        files_analyzed
-    );
 
     if should_exit_with_1 {
         std::process::exit(1);
@@ -773,16 +809,8 @@ pub(crate) fn analyze_single_file(
     content: &str,
     file_name: &str,
 ) -> FileAnalysisResult {
-    let contract_name = infer_contract_name(content).unwrap_or_else(|| {
-        Path::new(file_name)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("<unknown>")
-            .to_string()
-    });
     let mut res = FileAnalysisResult {
         file_path: file_name.to_string(),
-        call_graph: analyzer.scan_invoke_contract_calls(content, &contract_name, file_name),
         ..Default::default()
     };
 
@@ -801,7 +829,7 @@ pub(crate) fn analyze_single_file(
     res.unsafe_patterns = u;
 
     for g in analyzer.scan_auth_gaps(content) {
-        res.auth_gaps.push(format!("{}:{}", file_name, g));
+        res.auth_gaps.push(sanctifier_core::AuthGapIssue { function_name: format!("{}:{}", file_name, g.function_name) });
     }
 
     let mut p = analyzer.scan_panics(content);
@@ -860,37 +888,6 @@ pub(crate) fn analyze_single_file(
     res
 }
 
-fn infer_contract_name(source: &str) -> Option<String> {
-    let mut saw_contract_attr = false;
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("#[contract]") {
-            saw_contract_attr = true;
-            continue;
-        }
-        if !saw_contract_attr {
-            continue;
-        }
-        if let Some(rest) = trimmed.strip_prefix("pub struct ") {
-            return Some(
-                rest.trim_end_matches(';')
-                    .split_whitespace()
-                    .next()?
-                    .to_string(),
-            );
-        }
-        if let Some(rest) = trimmed.strip_prefix("struct ") {
-            return Some(
-                rest.trim_end_matches(';')
-                    .split_whitespace()
-                    .next()?
-                    .to_string(),
-            );
-        }
-    }
-    None
-}
-
 // ── Per-file timeout wrapper ─────────────────────────────────────────────────
 
 /// Run `f` on a dedicated OS thread with an optional deadline.
@@ -919,12 +916,11 @@ where
 /// `ignore_paths`.
 pub(crate) fn collect_rs_files(dir: &Path, ignore_paths: &[String]) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let ignore_patterns: Vec<PathBuf> = ignore_paths.iter().map(PathBuf::from).collect();
-    collect_rs_files_inner(dir, &ignore_patterns, &mut out);
+    collect_rs_files_inner(dir, ignore_paths, &mut out);
     out
 }
 
-fn collect_rs_files_inner(dir: &Path, ignore_patterns: &[PathBuf], out: &mut Vec<PathBuf>) {
+fn collect_rs_files_inner(dir: &Path, ignore_paths: &[String], out: &mut Vec<PathBuf>) {
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return,
@@ -932,9 +928,9 @@ fn collect_rs_files_inner(dir: &Path, ignore_patterns: &[PathBuf], out: &mut Vec
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            let is_ignored = ignore_patterns.iter().any(|p| path.ends_with(p));
+            let is_ignored = ignore_paths.iter().any(|p| path.ends_with(p));
             if !is_ignored {
-                collect_rs_files_inner(&path, ignore_patterns, out);
+                collect_rs_files_inner(&path, ignore_paths, out);
             }
         } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
             out.push(path);
