@@ -6,20 +6,12 @@ use clap::{Args, ValueEnum};
 use colored::*;
 use rayon::prelude::*;
 use sanctifier_core::finding_codes;
-use sanctifier_core::{Analyzer, SanctifyConfig, SizeWarningLevel};
+use sanctifier_core::{Analyzer, SanctifyConfig};
 use serde_json;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
-use tracing::{debug, error, info, warn};
-
-use crate::vulndb::{VulnDatabase, VulnMatch};
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
@@ -40,14 +32,18 @@ impl SeverityLevel {
             SeverityLevel::Low => "low",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for SeverityLevel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "critical" => Some(SeverityLevel::Critical),
-            "high" => Some(SeverityLevel::High),
-            "medium" => Some(SeverityLevel::Medium),
-            "low" => Some(SeverityLevel::Low),
-            _ => None,
+            "critical" => Ok(SeverityLevel::Critical),
+            "high" => Ok(SeverityLevel::High),
+            "medium" => Ok(SeverityLevel::Medium),
+            "low" => Ok(SeverityLevel::Low),
+            _ => Err(format!("Invalid severity level: {}", s)),
         }
     }
 }
@@ -113,7 +109,6 @@ pub(crate) struct FileAnalysisResult {
 // ── Entry point ──────────────────────────────────────────────────────────────
 
 pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
-    let path = &args.path;
     let mut path = args.path.clone();
 
     // Normalize path separators: ensure backslashes provided by users familiar with Windows
@@ -131,7 +126,6 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
     let is_json = format == "json";
     let timeout_secs = args.timeout;
 
-    if !is_soroban_project(path) {
     let start = Instant::now();
 
     if !is_soroban_project(&path) {
@@ -154,7 +148,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
     info!(target: "sanctifier", path = %path.display(), "Valid Soroban project found");
     info!(target: "sanctifier", path = %path.display(), "Analyzing contract");
 
-    let mut config = load_config(path);
+    let mut config = load_config(&path);
     config.ledger_limit = args.limit;
     let analyzer = Arc::new(Analyzer::new(config));
 
@@ -181,7 +175,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     // ── Phase 1: collect all .rs file paths ──────────────────────────────
     let rs_files = if path.is_dir() {
-        collect_rs_files(path, &analyzer.config.ignore_paths)
+        collect_rs_files(&path, &analyzer.config.ignore_paths)
     } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
         vec![path.clone()]
     } else {
@@ -245,10 +239,10 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     // ── Phase 3: sort by file path for deterministic output ──────────────
     results.sort_by(|a, b| a.file_path.cmp(&b.file_path));
-    let files_analyzed = total_files;
+    let _files_analyzed = total_files;
 
     // ── Phase 4: merge into flat vectors ─────────────────────────────────
-    let mut collisions = Vec::new();
+    let mut collisions: Vec<sanctifier_core::StorageCollisionIssue> = Vec::new();
     let mut size_warnings = Vec::new();
     let mut unsafe_patterns = Vec::new();
     let mut auth_gaps = Vec::new();
@@ -256,7 +250,6 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
     let mut arithmetic_issues = Vec::new();
     let mut custom_matches = Vec::new();
     let mut vuln_matches: Vec<VulnMatch> = Vec::new();
-    let mut vuln_matches = Vec::new();
     let mut event_issues = Vec::new();
     let mut unhandled_results = Vec::new();
     let mut upgrade_reports = Vec::new();
@@ -269,10 +262,6 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
         if r.timed_out {
             timed_out_files.push(r.file_path.clone());
         }
-    let mut timed_out_files = Vec::new();
-
-    for r in results {
-        call_graph.extend(r.call_graph);
         collisions.extend(r.collisions);
         size_warnings.extend(r.size_warnings);
         unsafe_patterns.extend(r.unsafe_patterns);
@@ -309,29 +298,45 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
         + sep41_issues.len()
         + timed_out_files.len();
 
-    let has_critical = auth_gaps.iter().any(|i| i.severity() == finding_codes::FindingSeverity::Critical)
-        || panic_issues.iter().any(|i| i.severity() == finding_codes::FindingSeverity::Critical)
-        || smt_issues.iter().any(|i| i.severity() == finding_codes::FindingSeverity::Critical)
-        || sep41_issues.iter().any(|i| i.severity() == finding_codes::FindingSeverity::Critical)
-        || size_warnings.iter().any(|i| i.severity() == finding_codes::FindingSeverity::Critical);
-
-    let has_high = arithmetic_issues.iter().any(|i| i.severity() == finding_codes::FindingSeverity::High)
-        || panic_issues.iter().any(|i| i.severity() == finding_codes::FindingSeverity::High)
-        || size_warnings.iter().any(|i| i.severity() == finding_codes::FindingSeverity::High)
-        || unsafe_patterns.iter().any(|i| i.severity() == finding_codes::FindingSeverity::High)
-        || upgrade_reports.iter().any(|r| r.findings.iter().any(|f| f.severity() == finding_codes::FindingSeverity::High))
-        || event_issues.iter().any(|i| i.severity() == finding_codes::FindingSeverity::High)
-        || unhandled_results.iter().any(|i| i.severity() == finding_codes::FindingSeverity::High);
-    let has_critical =
-        !auth_gaps.is_empty() || panic_issues.iter().any(|p| p.issue_type == "panic!");
-    let has_high = !arithmetic_issues.is_empty()
-        || !panic_issues.is_empty()
-        || !smt_issues.is_empty()
-        || !sep41_issues.is_empty()
-        || !unhandled_results.is_empty()
+    let has_critical = auth_gaps
+        .iter()
+        .any(|i| i.severity() == finding_codes::FindingSeverity::Critical)
+        || panic_issues
+            .iter()
+            .any(|i| i.severity() == finding_codes::FindingSeverity::Critical)
+        || smt_issues
+            .iter()
+            .any(|i| i.severity() == finding_codes::FindingSeverity::Critical)
+        || sep41_issues
+            .iter()
+            .any(|i| i.severity() == finding_codes::FindingSeverity::Critical)
         || size_warnings
             .iter()
-            .any(|w| w.level == SizeWarningLevel::ExceedsLimit);
+            .any(|i| i.severity() == finding_codes::FindingSeverity::Critical);
+
+    let has_high = arithmetic_issues
+        .iter()
+        .any(|i| i.severity() == finding_codes::FindingSeverity::High)
+        || panic_issues
+            .iter()
+            .any(|i| i.severity() == finding_codes::FindingSeverity::High)
+        || size_warnings
+            .iter()
+            .any(|i| i.severity() == finding_codes::FindingSeverity::High)
+        || unsafe_patterns
+            .iter()
+            .any(|i| i.severity() == finding_codes::FindingSeverity::High)
+        || upgrade_reports.iter().any(|r| {
+            r.findings
+                .iter()
+                .any(|f| f.severity() == finding_codes::FindingSeverity::High)
+        })
+        || event_issues
+            .iter()
+            .any(|i| i.severity() == finding_codes::FindingSeverity::High)
+        || unhandled_results
+            .iter()
+            .any(|i| i.severity() == finding_codes::FindingSeverity::High);
 
     let highest_finding_severity: Option<SeverityLevel> = {
         let mut highest: Option<SeverityLevel> = None;
@@ -359,7 +364,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
         }
 
         for vuln in &vuln_matches {
-            if let Some(sev) = SeverityLevel::from_str(&vuln.severity) {
+            if let Ok(sev) = vuln.severity.parse::<SeverityLevel>() {
                 consider(sev);
             }
         }
@@ -393,36 +398,14 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
         warn!(target: "sanctifier", error = %err, "Failed to initialize webhook client");
     }
 
-    if is_json {
-        let report = serde_json::json!({
-            "schema_version": "1.0.0",
-            "storage_collisions": collisions,
-    let duration_ms = start.elapsed().as_millis() as u64;
+    let _duration_ms = start.elapsed().as_millis() as u64;
     let _rules_executed: usize = 6;
 
     if is_json {
-        let call_graph_json: Vec<_> = call_graph
-            .iter()
-            .map(|edge| {
-                let function_expr = edge
-                    .function_expr
-                    .as_ref()
-                    .map(|f| f.trim_start_matches('&').trim().to_string());
-                serde_json::json!({
-                    "caller": edge.caller,
-                    "callee": edge.callee,
-                    "file": edge.file,
-                    "line": edge.line,
-                    "contract_id_expr": edge.contract_id_expr,
-                    "function_expr": function_expr,
-                })
-            })
-            .collect::<Vec<_>>();
-
         let report = serde_json::json!({
             "schema_version": "1.0.0",
             "storage_collisions": collisions,
-            "call_graph": call_graph_json,
+            "call_graph": [],
             "ledger_size_warnings": size_warnings,
             "unsafe_patterns": unsafe_patterns,
             "auth_gaps": auth_gaps,
@@ -829,7 +812,9 @@ pub(crate) fn analyze_single_file(
     res.unsafe_patterns = u;
 
     for g in analyzer.scan_auth_gaps(content) {
-        res.auth_gaps.push(sanctifier_core::AuthGapIssue { function_name: format!("{}:{}", file_name, g.function_name) });
+        res.auth_gaps.push(sanctifier_core::AuthGapIssue {
+            function_name: format!("{}:{}", file_name, g.function_name),
+        });
     }
 
     let mut p = analyzer.scan_panics(content);

@@ -3,7 +3,24 @@
 //! Each constant (`S000` – `S012`) maps to a single diagnostic category.
 //! Call `all_finding_codes()` to retrieve the full catalogue at runtime.
 
+use serde::Deserialize;
 use serde::Serialize;
+
+/// Severity level for findings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum FindingSeverity {
+    /// Critical severity - immediate security risk
+    Critical,
+    /// High severity - significant security concern
+    High,
+    /// Medium severity - potential issue
+    #[default]
+    Medium,
+    /// Low severity - minor concern
+    Low,
+    /// Informational - no immediate risk
+    Info,
+}
 
 /// Analysis timed out for a file (see `--timeout`).
 pub const ANALYSIS_TIMEOUT: &str = "S000";
