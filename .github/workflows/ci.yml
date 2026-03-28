@@ -142,6 +142,32 @@ jobs:
           path: frontend/coverage/
           retention-days: 7
 
+  commitlint:
+    name: Lint Commit Messages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install commitlint
+        run: |
+          cd frontend
+          npm install --save-dev @commitlint/cli @commitlint/config-conventional
+
+      - name: Validate PR commits
+        run: |
+          cd frontend
+          npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+
   wasm:
     name: Build WASM Package
     runs-on: ubuntu-latest
