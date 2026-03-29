@@ -49,6 +49,10 @@ pub enum Commands {
     Update,
     /// Detect reentrancy vulnerabilities (state mutation before external call)
     Reentrancy(commands::reentrancy::ReentrancyArgs),
+    /// Export findings to CSV or TSV (Excel-compatible) for security audits
+    Export(commands::export::ExportArgs),
+    /// Analyze all contracts in a Cargo workspace, resolving shared library crates
+    Workspace(commands::workspace::WorkspaceArgs),
 }
 
 fn main() {
@@ -144,6 +148,12 @@ fn run() -> anyhow::Result<()> {
         }
         Commands::Reentrancy(args) => {
             commands::reentrancy::exec(args)?;
+        }
+        Commands::Export(args) => {
+            commands::export::exec(args)?;
+        }
+        Commands::Workspace(args) => {
+            commands::workspace::exec(args)?;
         }
     }
 
