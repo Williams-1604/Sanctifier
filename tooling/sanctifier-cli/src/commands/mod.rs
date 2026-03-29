@@ -4,5 +4,6 @@ pub mod complexity;
 pub mod init;
 pub mod reentrancy;
 pub mod report;
+pub mod storage;
 pub mod update;
 pub mod webhook;
