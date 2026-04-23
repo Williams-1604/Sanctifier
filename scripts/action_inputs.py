@@ -115,7 +115,7 @@ def main() -> int:
             sarif_output=args.sarif_output,
         )
     except ValueError as exc:
-        print(f"Sanctifier action input error: {exc}", file=sys.stderr)
+        print(f"::error title=Invalid Input::Sanctifier action input error: {exc}", file=sys.stderr)
         return 2
 
     write_env_file(inputs, Path(args.output))

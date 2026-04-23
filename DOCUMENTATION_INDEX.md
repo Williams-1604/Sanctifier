@@ -337,3 +337,4 @@ See: [QUICK_START.md - Verification](QUICK_START.md#-check-results-1-min)
 **Status:** Production Ready  
 
 🎉 Start with [QUICK_START.md](QUICK_START.md) and deploy your first contract in 5 minutes!
+- [Schema publish pipeline & Typed Bindings](docs/schema-pipeline-bindings-notes.md)
