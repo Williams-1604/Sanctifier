@@ -6,6 +6,7 @@ use syn::{parse_str, File, Item};
 pub struct UncheckedExternalCallRule;
 
 impl UncheckedExternalCallRule {
+    /// Create a new unchecked-external-call rule.
     pub fn new() -> Self {
         Self
     }
@@ -207,7 +208,10 @@ mod tests {
             }
         "#;
         let violations = rule.check(source);
-        assert!(!violations.is_empty(), "unchecked external call should be flagged");
+        assert!(
+            !violations.is_empty(),
+            "unchecked external call should be flagged"
+        );
     }
 
     #[test]
@@ -222,7 +226,10 @@ mod tests {
             }
         "#;
         let violations = rule.check(source);
-        assert!(violations.is_empty(), "checked external call should not be flagged");
+        assert!(
+            violations.is_empty(),
+            "checked external call should not be flagged"
+        );
     }
 
     #[test]
@@ -236,6 +243,9 @@ mod tests {
             }
         "#;
         let violations = rule.check(source);
-        assert!(violations.is_empty(), "read-only methods should not be flagged");
+        assert!(
+            violations.is_empty(),
+            "read-only methods should not be flagged"
+        );
     }
 }

@@ -32,6 +32,7 @@ This document captures a lightweight threat model for the composite GitHub Actio
 **Mitigations**:
 
 - Prefer pinning a released action version tag (e.g. `HyperSafeD/Sanctifier@vX.Y.Z`) and, optionally, `with: version: X.Y.Z`.
+- Keep action inputs constrained to repository-relative paths and documented output formats before invoking shell commands.
 - Keep SARIF upload disabled on untrusted events (fork PRs are already handled).
 
 ### Data exfiltration via logs/artifacts

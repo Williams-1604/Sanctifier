@@ -21,6 +21,12 @@ class ResolveActionVersionTests(unittest.TestCase):
                 )
                 self.assertEqual(got, case["expected"])
 
+    def test_rejects_non_semver_requested_version(self) -> None:
+        from scripts.resolve_action_version import resolve_version
+
+        with self.assertRaisesRegex(ValueError, "semantic version"):
+            resolve_version(action_ref="v0.2.3", requested="latest --git https://example.invalid")
+
 
 if __name__ == "__main__":
     unittest.main()

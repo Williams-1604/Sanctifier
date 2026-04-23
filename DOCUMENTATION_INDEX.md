@@ -201,6 +201,8 @@ See: [QUICK_START.md - Verification](QUICK_START.md#-check-results-1-min)
 **GitHub Action Hardening**
 - Support Matrix: [docs/github-action-support-matrix.md](docs/github-action-support-matrix.md)
 - Threat Model Notes: [docs/github-action-threat-model.md](docs/github-action-threat-model.md)
+- Action unit test fixtures: [tests/action/fixtures](tests/action/fixtures)
+- Vulnerability DB format and validation: [docs/vulnerability-database-format.md](docs/vulnerability-database-format.md)
 
 **Production Setup**
 - Branch Protection: [docs/ci-cd-setup.md](docs/ci-cd-setup.md#branch-protection-recommended)

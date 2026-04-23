@@ -77,7 +77,9 @@ pub fn exec(args: FixArgs) -> anyhow::Result<()> {
                             print_diff(&source, patch);
                         }
                         _ => {
-                            println!("  y=apply  n=skip  a=apply-all-remaining  d=show-diff  ?=help");
+                            println!(
+                                "  y=apply  n=skip  a=apply-all-remaining  d=show-diff  ?=help"
+                            );
                         }
                     }
                 }

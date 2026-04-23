@@ -19,6 +19,8 @@ pub mod panic_detection;
 pub mod reentrancy;
 /// Shadow storage pattern detection.
 pub mod shadow_storage;
+/// Detect usage of env.storage().instance().update() without state check.
+pub mod storage_update_state_check;
 /// Integer truncation and unchecked bounds detection.
 pub mod truncation_bounds;
 /// Unchecked external call detection.
@@ -29,8 +31,6 @@ pub mod unhandled_result;
 pub mod unsafe_prng;
 /// Unused local variables.
 pub mod unused_variable;
-/// Detect usage of env.storage().instance().update() without state check.
-pub mod storage_update_state_check;
 
 /// Variable shadowing in nested scopes.
 pub mod variable_shadowing;

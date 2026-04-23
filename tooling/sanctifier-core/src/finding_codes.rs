@@ -64,7 +64,7 @@ pub const UNCHECKED_EXTERNAL_CALL: &str = "S019";
 /// Missing event emission for privileged state changes.
 pub const MISSING_STATE_EVENT: &str = "S020";
 /// Per-user or large dataset stored in Instance storage instead of Persistent.
-pub const INSTANCE_STORAGE_MISUSE: &str = "S019";
+pub const INSTANCE_STORAGE_MISUSE: &str = "S021";
 
 /// A single finding-code entry with machine-readable code, category, and
 /// human-readable description.
@@ -186,6 +186,8 @@ pub fn all_finding_codes() -> Vec<FindingCode> {
             code: MISSING_STATE_EVENT,
             category: "events",
             description: "Privileged state change (admin, pause, upgrade) without event emission breaks off-chain data integrity",
+        },
+        FindingCode {
             code: INSTANCE_STORAGE_MISUSE,
             category: "storage_type",
             description: "Per-user or large dataset stored in Instance storage instead of Persistent, causing ledger entry bloat",

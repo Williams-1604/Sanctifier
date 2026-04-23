@@ -23,10 +23,6 @@
 
 #![warn(missing_docs)]
 
-use soroban_sdk::Env;
-use std::collections::HashSet;
-use syn::{parse_str, File, Item, Type, Fields, Meta, ExprMethodCall, Macro};
-use syn::visit::{self, Visit};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::panic::catch_unwind;
@@ -82,9 +78,6 @@ pub use rules::{Rule, RuleRegistry, RuleViolation, Severity};
 pub use sep41::{Sep41Issue, Sep41IssueKind, Sep41VerificationReport};
 pub use smt::SmtInvariantIssue;
 
-use syn::spanned::Spanned;
-
-// Redundant imports removed
 use crate::rules::arithmetic_overflow::ArithVisitor;
 use crate::rules::truncation_bounds::TruncationBoundsVisitor;
 
@@ -574,7 +567,10 @@ impl Analyzer {
     }
 
     /// Detect Soroban SDK version and check for deprecations.
-    pub fn detect_sdk_version(&self, cargo_toml_path: &std::path::Path) -> sdk_version::SdkVersionInfo {
+    pub fn detect_sdk_version(
+        &self,
+        cargo_toml_path: &std::path::Path,
+    ) -> sdk_version::SdkVersionInfo {
         sdk_version::detect_sdk_version(cargo_toml_path)
     }
 

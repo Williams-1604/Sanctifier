@@ -1,5 +1,6 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -42,13 +43,87 @@ impl VulnDatabase {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let content = fs::read_to_string(path)?;
         let db: VulnDatabase = serde_json::from_str(&content)?;
+        db.validate()?;
         Ok(db)
     }
 
     /// Load the embedded default vulnerability database.
     pub fn load_default() -> Self {
         let content = include_str!("../data/vulnerability-db.json");
-        serde_json::from_str(content).expect("embedded vulnerability-db.json is valid")
+        let db: VulnDatabase =
+            serde_json::from_str(content).expect("embedded vulnerability-db.json is valid JSON");
+        db.validate()
+            .expect("embedded vulnerability-db.json passes semantic validation");
+        db
+    }
+
+    /// Validate uniqueness and overlap constraints that JSON Schema cannot express.
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.vulnerabilities.is_empty() {
+            anyhow::bail!("vulnerability database must contain at least one vulnerability");
+        }
+
+        let mut ids: HashMap<&str, usize> = HashMap::new();
+        let mut names: HashMap<String, usize> = HashMap::new();
+        let mut signatures: HashMap<String, usize> = HashMap::new();
+        let mut errors = Vec::new();
+
+        for (index, vuln) in self.vulnerabilities.iter().enumerate() {
+            if vuln.id.trim().is_empty() {
+                errors.push(format!("vulnerabilities[{index}].id must not be empty"));
+            }
+            if vuln.name.trim().is_empty() {
+                errors.push(format!("vulnerabilities[{index}].name must not be empty"));
+            }
+            if vuln.pattern.trim().is_empty() {
+                errors.push(format!(
+                    "vulnerabilities[{index}].pattern must not be empty"
+                ));
+            } else if let Err(err) = Regex::new(&vuln.pattern) {
+                errors.push(format!(
+                    "{} has invalid regex pattern: {err}",
+                    vuln.id.as_str()
+                ));
+            }
+
+            if let Some(first) = ids.insert(vuln.id.as_str(), index) {
+                errors.push(format!(
+                    "duplicate vulnerability id {:?} at vulnerabilities[{first}] and vulnerabilities[{index}]",
+                    vuln.id
+                ));
+            }
+
+            let name_key = vuln.name.trim().to_ascii_lowercase();
+            if !name_key.is_empty() {
+                if let Some(first) = names.insert(name_key, index) {
+                    errors.push(format!(
+                        "duplicate vulnerability name {:?} at vulnerabilities[{first}] and vulnerabilities[{index}]",
+                        vuln.name
+                    ));
+                }
+            }
+
+            let signature = format!(
+                "{}\x1f{}\x1f{}",
+                vuln.category.trim().to_ascii_lowercase(),
+                vuln.severity.trim().to_ascii_lowercase(),
+                vuln.pattern.trim()
+            );
+            if !vuln.pattern.trim().is_empty() {
+                if let Some(first) = signatures.insert(signature, index) {
+                    errors.push(format!(
+                        "overlapping vulnerability signature between {} at vulnerabilities[{first}] and {} at vulnerabilities[{index}]",
+                        self.vulnerabilities[first].id, vuln.id
+                    ));
+                }
+            }
+        }
+
+        if !errors.is_empty() {
+            anyhow::bail!("invalid vulnerability database:\n{}", errors.join("\n"));
+        }
+
+        Ok(())
     }
 
     /// Scan source code against all vulnerability patterns.
@@ -234,6 +309,109 @@ fn second() {
         assert_eq!(db.version, "0.1.0");
         assert_eq!(db.vulnerabilities.len(), 1);
         assert_eq!(db.vulnerabilities[0].id, "CUSTOM-001");
+    }
+
+    #[test]
+    fn test_validate_rejects_duplicate_ids() {
+        let db = VulnDatabase {
+            version: "0.1.0".to_string(),
+            last_updated: "2026-04-23".to_string(),
+            description: "duplicate ids".to_string(),
+            vulnerabilities: vec![
+                VulnEntry {
+                    id: "DUP-001".to_string(),
+                    name: "First".to_string(),
+                    description: "first".to_string(),
+                    severity: "low".to_string(),
+                    category: "test".to_string(),
+                    pattern: "first".to_string(),
+                    recommendation: "fix first".to_string(),
+                    references: vec![],
+                },
+                VulnEntry {
+                    id: "DUP-001".to_string(),
+                    name: "Second".to_string(),
+                    description: "second".to_string(),
+                    severity: "low".to_string(),
+                    category: "test".to_string(),
+                    pattern: "second".to_string(),
+                    recommendation: "fix second".to_string(),
+                    references: vec![],
+                },
+            ],
+        };
+
+        let err = db.validate().expect_err("duplicate IDs should fail");
+        assert!(err.to_string().contains("duplicate vulnerability id"));
+    }
+
+    #[test]
+    fn test_validate_rejects_overlapping_signatures() {
+        let db = VulnDatabase {
+            version: "0.1.0".to_string(),
+            last_updated: "2026-04-23".to_string(),
+            description: "overlapping signatures".to_string(),
+            vulnerabilities: vec![
+                VulnEntry {
+                    id: "SIG-001".to_string(),
+                    name: "First".to_string(),
+                    description: "first".to_string(),
+                    severity: "high".to_string(),
+                    category: "auth".to_string(),
+                    pattern: "require_auth".to_string(),
+                    recommendation: "fix first".to_string(),
+                    references: vec![],
+                },
+                VulnEntry {
+                    id: "SIG-002".to_string(),
+                    name: "Second".to_string(),
+                    description: "second".to_string(),
+                    severity: "HIGH".to_string(),
+                    category: "AUTH".to_string(),
+                    pattern: "require_auth".to_string(),
+                    recommendation: "fix second".to_string(),
+                    references: vec![],
+                },
+            ],
+        };
+
+        let err = db
+            .validate()
+            .expect_err("overlapping signatures should fail");
+        assert!(err
+            .to_string()
+            .contains("overlapping vulnerability signature"));
+    }
+
+    #[test]
+    fn test_load_rejects_invalid_regex_with_context() {
+        let custom_db_content = r#"{
+            "version": "0.1.0",
+            "last_updated": "2026-04-23",
+            "description": "Invalid regex database",
+            "vulnerabilities": [
+                {
+                    "id": "BAD-REGEX",
+                    "name": "Bad Regex",
+                    "description": "A bad regex",
+                    "severity": "low",
+                    "category": "test",
+                    "pattern": "(",
+                    "recommendation": "Fix it"
+                }
+            ]
+        }"#;
+
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        temp_file
+            .write_all(custom_db_content.as_bytes())
+            .expect("Failed to write temp file");
+        temp_file.flush().expect("Failed to flush");
+
+        let err = VulnDatabase::load(temp_file.path()).expect_err("invalid regex should fail");
+        assert!(err
+            .to_string()
+            .contains("BAD-REGEX has invalid regex pattern"));
     }
 
     #[test]

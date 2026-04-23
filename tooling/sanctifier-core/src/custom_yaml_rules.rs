@@ -1,4 +1,4 @@
-use crate::rules::{Rule, RuleViolation, Severity, Patch};
+use crate::rules::{Patch, Rule, RuleViolation, Severity};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use syn::spanned::Spanned;
@@ -21,9 +21,13 @@ pub struct YamlCustomRule {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// Severity values accepted in YAML-defined custom rules.
 pub enum YamlSeverity {
+    /// Emit an error-level violation.
     Error,
+    /// Emit a warning-level violation.
     Warning,
+    /// Emit an informational violation.
     Info,
 }
 
@@ -78,11 +82,10 @@ pub enum AstMatcher {
 
 /// Load custom rules from YAML file
 pub fn load_yaml_rules(path: &Path) -> Result<Vec<YamlCustomRule>, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read YAML file: {}", e))?;
-    
-    serde_yaml::from_str(&content)
-        .map_err(|e| format!("Failed to parse YAML: {}", e))
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to read YAML file: {}", e))?;
+
+    serde_yaml::from_str(&content).map_err(|e| format!("Failed to parse YAML: {}", e))
 }
 
 /// Wrapper that implements Rule trait for YAML-defined rules
@@ -91,12 +94,14 @@ pub struct YamlRuleWrapper {
 }
 
 impl YamlRuleWrapper {
+    /// Create a rule wrapper from a parsed YAML custom rule.
     pub fn new(rule: YamlCustomRule) -> Self {
         Self { rule }
     }
 }
 
 impl Rule for YamlRuleWrapper {
+    #[allow(clippy::misnamed_getters)]
     fn name(&self) -> &str {
         &self.rule.id
     }
@@ -107,18 +112,15 @@ impl Rule for YamlRuleWrapper {
 
     fn check(&self, source: &str) -> Vec<RuleViolation> {
         match &self.rule.matcher {
-            AstMatcher::FunctionCall { name, .. } => {
-                check_function_calls(source, name, &self.rule)
-            }
+            AstMatcher::FunctionCall { name, .. } => check_function_calls(source, name, &self.rule),
             AstMatcher::MethodCall { method, receiver } => {
                 check_method_calls(source, method, receiver.as_deref(), &self.rule)
             }
-            AstMatcher::StorageOperation { operation, key_pattern } => {
-                check_storage_operations(source, operation, key_pattern.as_deref(), &self.rule)
-            }
-            AstMatcher::Regex { pattern } => {
-                check_regex_pattern(source, pattern, &self.rule)
-            }
+            AstMatcher::StorageOperation {
+                operation,
+                key_pattern,
+            } => check_storage_operations(source, operation, key_pattern.as_deref(), &self.rule),
+            AstMatcher::Regex { pattern } => check_regex_pattern(source, pattern, &self.rule),
         }
     }
 
@@ -131,7 +133,11 @@ impl Rule for YamlRuleWrapper {
     }
 }
 
-fn check_function_calls(source: &str, name_pattern: &str, rule: &YamlCustomRule) -> Vec<RuleViolation> {
+fn check_function_calls(
+    source: &str,
+    name_pattern: &str,
+    rule: &YamlCustomRule,
+) -> Vec<RuleViolation> {
     let file = match parse_str::<File>(source) {
         Ok(f) => f,
         Err(_) => return vec![],
@@ -139,7 +145,7 @@ fn check_function_calls(source: &str, name_pattern: &str, rule: &YamlCustomRule)
 
     let mut violations = Vec::new();
     let visitor = FunctionCallVisitor::new(name_pattern);
-    
+
     for item in &file.items {
         if let syn::Item::Impl(impl_item) = item {
             for impl_item_inner in &impl_item.items {
@@ -149,7 +155,7 @@ fn check_function_calls(source: &str, name_pattern: &str, rule: &YamlCustomRule)
             }
         }
     }
-    
+
     violations
 }
 
@@ -165,7 +171,7 @@ fn check_method_calls(
     };
 
     let mut violations = Vec::new();
-    
+
     for item in &file.items {
         if let syn::Item::Impl(impl_item) = item {
             for impl_item_inner in &impl_item.items {
@@ -181,7 +187,7 @@ fn check_method_calls(
             }
         }
     }
-    
+
     violations
 }
 
@@ -197,7 +203,7 @@ fn check_storage_operations(
     };
 
     let mut violations = Vec::new();
-    
+
     for item in &file.items {
         if let syn::Item::Impl(impl_item) = item {
             for impl_item_inner in &impl_item.items {
@@ -213,7 +219,7 @@ fn check_storage_operations(
             }
         }
     }
-    
+
     violations
 }
 
@@ -234,7 +240,7 @@ fn check_regex_pattern(source: &str, pattern: &str, rule: &YamlCustomRule) -> Ve
             ));
         }
     }
-    
+
     violations
 }
 
@@ -247,10 +253,15 @@ impl<'a> FunctionCallVisitor<'a> {
         Self { name_pattern }
     }
 
-    fn check_block(&self, block: &syn::Block, violations: &mut Vec<RuleViolation>, rule: &YamlCustomRule) {
+    fn check_block(
+        &self,
+        block: &syn::Block,
+        violations: &mut Vec<RuleViolation>,
+        rule: &YamlCustomRule,
+    ) {
         for stmt in &block.stmts {
             match stmt {
-                syn::Stmt::Expr(expr, _) | syn::Stmt::Expr(expr, None) => {
+                syn::Stmt::Expr(expr, _) => {
                     self.check_expr(expr, violations, rule);
                 }
                 syn::Stmt::Local(local) => {
@@ -263,7 +274,12 @@ impl<'a> FunctionCallVisitor<'a> {
         }
     }
 
-    fn check_expr(&self, expr: &syn::Expr, violations: &mut Vec<RuleViolation>, rule: &YamlCustomRule) {
+    fn check_expr(
+        &self,
+        expr: &syn::Expr,
+        violations: &mut Vec<RuleViolation>,
+        rule: &YamlCustomRule,
+    ) {
         match expr {
             syn::Expr::Call(call) => {
                 if let syn::Expr::Path(path) = &*call.func {
@@ -312,12 +328,24 @@ fn check_block_for_method_calls(
 ) {
     for stmt in &block.stmts {
         match stmt {
-            syn::Stmt::Expr(expr, _) | syn::Stmt::Expr(expr, None) => {
-                check_expr_for_method_calls(expr, method_pattern, receiver_pattern, violations, rule);
+            syn::Stmt::Expr(expr, _) => {
+                check_expr_for_method_calls(
+                    expr,
+                    method_pattern,
+                    receiver_pattern,
+                    violations,
+                    rule,
+                );
             }
             syn::Stmt::Local(local) => {
                 if let Some(init) = &local.init {
-                    check_expr_for_method_calls(&init.expr, method_pattern, receiver_pattern, violations, rule);
+                    check_expr_for_method_calls(
+                        &init.expr,
+                        method_pattern,
+                        receiver_pattern,
+                        violations,
+                        rule,
+                    );
                 }
             }
             _ => {}
@@ -340,7 +368,7 @@ fn check_expr_for_method_calls(
                 let receiver_matches = receiver_pattern
                     .map(|p| matches_pattern(&receiver_str, p))
                     .unwrap_or(true);
-                
+
                 if receiver_matches {
                     let span = m.span();
                     violations.push(RuleViolation::new(
@@ -351,25 +379,73 @@ fn check_expr_for_method_calls(
                     ));
                 }
             }
-            check_expr_for_method_calls(&m.receiver, method_pattern, receiver_pattern, violations, rule);
+            check_expr_for_method_calls(
+                &m.receiver,
+                method_pattern,
+                receiver_pattern,
+                violations,
+                rule,
+            );
             for arg in &m.args {
-                check_expr_for_method_calls(arg, method_pattern, receiver_pattern, violations, rule);
+                check_expr_for_method_calls(
+                    arg,
+                    method_pattern,
+                    receiver_pattern,
+                    violations,
+                    rule,
+                );
             }
         }
         syn::Expr::Block(b) => {
-            check_block_for_method_calls(&b.block, method_pattern, receiver_pattern, violations, rule);
+            check_block_for_method_calls(
+                &b.block,
+                method_pattern,
+                receiver_pattern,
+                violations,
+                rule,
+            );
         }
         syn::Expr::If(i) => {
-            check_expr_for_method_calls(&i.cond, method_pattern, receiver_pattern, violations, rule);
-            check_block_for_method_calls(&i.then_branch, method_pattern, receiver_pattern, violations, rule);
+            check_expr_for_method_calls(
+                &i.cond,
+                method_pattern,
+                receiver_pattern,
+                violations,
+                rule,
+            );
+            check_block_for_method_calls(
+                &i.then_branch,
+                method_pattern,
+                receiver_pattern,
+                violations,
+                rule,
+            );
             if let Some((_, else_expr)) = &i.else_branch {
-                check_expr_for_method_calls(else_expr, method_pattern, receiver_pattern, violations, rule);
+                check_expr_for_method_calls(
+                    else_expr,
+                    method_pattern,
+                    receiver_pattern,
+                    violations,
+                    rule,
+                );
             }
         }
         syn::Expr::Match(m) => {
-            check_expr_for_method_calls(&m.expr, method_pattern, receiver_pattern, violations, rule);
+            check_expr_for_method_calls(
+                &m.expr,
+                method_pattern,
+                receiver_pattern,
+                violations,
+                rule,
+            );
             for arm in &m.arms {
-                check_expr_for_method_calls(&arm.body, method_pattern, receiver_pattern, violations, rule);
+                check_expr_for_method_calls(
+                    &arm.body,
+                    method_pattern,
+                    receiver_pattern,
+                    violations,
+                    rule,
+                );
             }
         }
         _ => {}
@@ -385,12 +461,18 @@ fn check_block_for_storage_ops(
 ) {
     for stmt in &block.stmts {
         match stmt {
-            syn::Stmt::Expr(expr, _) | syn::Stmt::Expr(expr, None) => {
+            syn::Stmt::Expr(expr, _) => {
                 check_expr_for_storage_ops(expr, operation, key_pattern, violations, rule);
             }
             syn::Stmt::Local(local) => {
                 if let Some(init) = &local.init {
-                    check_expr_for_storage_ops(&init.expr, operation, key_pattern, violations, rule);
+                    check_expr_for_storage_ops(
+                        &init.expr,
+                        operation,
+                        key_pattern,
+                        violations,
+                        rule,
+                    );
                 }
             }
             _ => {}
@@ -409,7 +491,7 @@ fn check_expr_for_storage_ops(
         syn::Expr::MethodCall(m) => {
             let method_name = m.method.to_string();
             let receiver_str = quote::quote!(#m.receiver).to_string();
-            
+
             if receiver_str.contains("storage") && method_name == operation {
                 let key_matches = if let Some(pattern) = key_pattern {
                     m.args.iter().any(|arg| {
@@ -419,7 +501,7 @@ fn check_expr_for_storage_ops(
                 } else {
                     true
                 };
-                
+
                 if key_matches {
                     let span = m.span();
                     violations.push(RuleViolation::new(
@@ -430,7 +512,7 @@ fn check_expr_for_storage_ops(
                     ));
                 }
             }
-            
+
             check_expr_for_storage_ops(&m.receiver, operation, key_pattern, violations, rule);
             for arg in &m.args {
                 check_expr_for_storage_ops(arg, operation, key_pattern, violations, rule);
@@ -499,7 +581,7 @@ mod tests {
                 args: vec![],
             },
         };
-        
+
         let wrapper = YamlRuleWrapper::new(rule);
         let source = r#"
             impl MyContract {
@@ -508,7 +590,7 @@ mod tests {
                 }
             }
         "#;
-        
+
         let violations = wrapper.check(source);
         assert!(!violations.is_empty());
     }
@@ -525,7 +607,7 @@ mod tests {
                 receiver: Some("storage".to_string()),
             },
         };
-        
+
         let wrapper = YamlRuleWrapper::new(rule);
         let source = r#"
             impl MyContract {
@@ -534,7 +616,7 @@ mod tests {
                 }
             }
         "#;
-        
+
         let violations = wrapper.check(source);
         assert!(!violations.is_empty());
     }

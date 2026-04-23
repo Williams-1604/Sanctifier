@@ -1,6 +1,6 @@
 use crate::rules::{Rule, RuleViolation, Severity};
-use syn::{parse_str, File, Item, Stmt, Expr};
 use quote::ToTokens;
+use syn::{parse_str, Expr, File, Item, Stmt};
 
 /// Rule to detect usage of env.storage().instance().update() without a state check.
 pub struct StorageUpdateStateCheckRule;
@@ -99,32 +99,29 @@ fn check_for_state_check(stmt: &Stmt) -> bool {
 }
 
 fn check_for_vulnerable_update(stmt: &Stmt, has_check: bool) -> bool {
-    match stmt {
-        Stmt::Expr(expr, _) => {
-            if is_storage_update_call(expr) {
-                return !has_check;
+    if let Stmt::Expr(expr, _) = stmt {
+        if is_storage_update_call(expr) {
+            return !has_check;
+        }
+        if let Expr::If(expr_if) = expr {
+            if is_storage_has_call(&expr_if.cond) {
+                return false;
             }
-            if let Expr::If(expr_if) = expr {
-                if is_storage_has_call(&expr_if.cond) {
-                    return false;
+            for s in &expr_if.then_branch.stmts {
+                if check_for_vulnerable_update(s, has_check) {
+                    return true;
                 }
-                for s in &expr_if.then_branch.stmts {
-                    if check_for_vulnerable_update(s, has_check) {
-                        return true;
-                    }
-                }
-                if let Some((_, else_branch)) = &expr_if.else_branch {
-                    if let Expr::Block(expr_block) = else_branch.as_ref() {
-                        for s in &expr_block.block.stmts {
-                            if check_for_vulnerable_update(s, has_check) {
-                                return true;
-                            }
+            }
+            if let Some((_, else_branch)) = &expr_if.else_branch {
+                if let Expr::Block(expr_block) = else_branch.as_ref() {
+                    for s in &expr_block.block.stmts {
+                        if check_for_vulnerable_update(s, has_check) {
+                            return true;
                         }
                     }
                 }
             }
         }
-        _ => {}
     }
     false
 }

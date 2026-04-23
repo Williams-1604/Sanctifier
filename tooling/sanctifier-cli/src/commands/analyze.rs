@@ -111,7 +111,7 @@ pub(crate) struct FileAnalysisResult {
 // ── Entry point ──────────────────────────────────────────────────────────────
 
 pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
-    let mut path = args.path.clone();
+    let path = args.path.clone();
 
     #[cfg(not(windows))]
     {

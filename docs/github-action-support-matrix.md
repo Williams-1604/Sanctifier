@@ -35,3 +35,20 @@ Notes:
 
 The action inputs/outputs in `action.yml` are intended to remain stable across patch releases.
 If an input/output needs to change incompatibly, the change should be documented and released with an appropriate version bump.
+
+## Input validation and tests
+
+The composite action validates its inputs before installing or running the CLI:
+
+- `path` must be a relative path inside the checked-out repository and must exist.
+- `format` must be one of `text`, `json`, or `sarif`.
+- `min-severity` must be one of `critical`, `high`, `medium`, `low`, or `info`.
+- `upload-sarif` accepts boolean-like values and is normalized to `true` or `false`.
+- `sarif-output` must be a relative output path and cannot include path traversal segments.
+
+Action helper logic lives in `scripts/action_inputs.py`, `scripts/action_summary.py`, and `scripts/resolve_action_version.py`.
+Unit fixtures live under `tests/action/fixtures/`, and CI runs them with:
+
+```bash
+python -m unittest discover -s tests/action -p "test_*.py"
+```

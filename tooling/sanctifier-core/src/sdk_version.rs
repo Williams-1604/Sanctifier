@@ -15,6 +15,7 @@ pub struct SdkVersionInfo {
 }
 
 impl SdkVersionInfo {
+    /// Return an SDK version result for cases where no version could be detected.
     pub fn unknown() -> Self {
         Self {
             version: None,
@@ -33,7 +34,7 @@ pub fn detect_sdk_version(cargo_toml_path: &Path) -> SdkVersionInfo {
     };
 
     let version = extract_soroban_sdk_version(&content);
-    
+
     match version {
         Some(v) => analyze_version(&v),
         None => SdkVersionInfo::unknown(),
@@ -93,22 +94,24 @@ fn analyze_version(version: &str) -> SdkVersionInfo {
             version, info.recommended_version.as_ref().unwrap()
         ));
         info.warnings.push(
-            "SDK v20 has known issues with storage TTL management and event emission.".to_string()
+            "SDK v20 has known issues with storage TTL management and event emission.".to_string(),
         );
     } else if major == 21 && minor < 5 {
         info.warnings.push(format!(
             "Soroban SDK {} has known issues. Upgrade to {} recommended.",
-            version, info.recommended_version.as_ref().unwrap()
+            version,
+            info.recommended_version.as_ref().unwrap()
         ));
         info.warnings.push(
-            "Early v21 releases had bugs in authorization and cross-contract calls.".to_string()
+            "Early v21 releases had bugs in authorization and cross-contract calls.".to_string(),
         );
     }
 
     // Check for insecure patterns in specific versions
     if version == "21.0.0" || version == "21.1.0" {
         info.warnings.push(
-            "This SDK version has a critical bug in require_auth() - upgrade immediately!".to_string()
+            "This SDK version has a critical bug in require_auth() - upgrade immediately!"
+                .to_string(),
         );
     }
 

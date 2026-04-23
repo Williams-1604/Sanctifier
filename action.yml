@@ -18,7 +18,7 @@ inputs:
     required: false
     default: ""
   min-severity:
-    description: Minimum severity to report (critical|high|medium|low)
+    description: Minimum severity to report (critical|high|medium|low|info)
     required: false
     default: high
   format:
@@ -42,6 +42,18 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Validate action inputs
+      shell: bash
+      run: |
+        python "${{ github.action_path }}/scripts/action_inputs.py" \
+          --path "${{ inputs.path }}" \
+          --min-severity "${{ inputs.min-severity }}" \
+          --format "${{ inputs.format }}" \
+          --upload-sarif "${{ inputs.upload-sarif }}" \
+          --sarif-output "${{ inputs.sarif-output }}" \
+          --output "$RUNNER_TEMP/sanctifier_action_inputs"
+        cat "$RUNNER_TEMP/sanctifier_action_inputs" >> "$GITHUB_ENV"
+
     - name: Install Sanctifier CLI
       shell: bash
       run: |
@@ -62,15 +74,16 @@ runs:
     - name: Analyze project
       shell: bash
       run: |
-        if [ "${{ inputs.format }}" = "sarif" ]; then
-          sanctifier analyze "${{ inputs.path }}" \
+        if [ "$SANCTIFIER_ACTION_FORMAT" = "sarif" ]; then
+          mkdir -p "$(dirname "$SANCTIFIER_ACTION_SARIF_OUTPUT")"
+          sanctifier analyze "$SANCTIFIER_ACTION_PATH" \
             --format sarif \
-            --min-severity "${{ inputs.min-severity }}" \
-            --exit-code > "${{ inputs.sarif-output }}"
+            --min-severity "$SANCTIFIER_ACTION_MIN_SEVERITY" \
+            --exit-code > "$SANCTIFIER_ACTION_SARIF_OUTPUT"
         else
-          sanctifier analyze "${{ inputs.path }}" \
-            --format "${{ inputs.format }}" \
-            --min-severity "${{ inputs.min-severity }}" \
+          sanctifier analyze "$SANCTIFIER_ACTION_PATH" \
+            --format "$SANCTIFIER_ACTION_FORMAT" \
+            --min-severity "$SANCTIFIER_ACTION_MIN_SEVERITY" \
             --exit-code
         fi
 
@@ -78,57 +91,17 @@ runs:
       id: summarize
       shell: bash
       run: |
-        python - <<'PY'
-        import json
-        import os
-        import subprocess
-        import sys
-
-        fmt = os.environ.get("INPUT_FORMAT", "sarif")
-        path = os.environ.get("INPUT_PATH", ".")
-        sarif_path = os.environ.get("INPUT_SARIF_OUTPUT", "sanctifier-results.sarif")
-
-        findings_count = 0
-        if fmt == "sarif":
-          try:
-            with open(sarif_path, "r", encoding="utf-8") as f:
-              data = json.load(f)
-            findings_count = sum(len(run.get("results", []) or []) for run in (data.get("runs", []) or []))
-          except FileNotFoundError:
-            findings_count = 0
-        elif fmt == "json":
-          proc = subprocess.run(
-            ["sanctifier", "analyze", path, "--format", "json"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            check=False,
-          )
-          try:
-            data = json.loads(proc.stdout or "{}")
-            summary = data.get("summary") or {}
-            findings_count = summary.get("total_findings")
-            if findings_count is None:
-              findings_count = sum(int(summary.get(k, 0) or 0) for k in ("critical", "high", "medium", "low", "info"))
-          except json.JSONDecodeError:
-            findings_count = 0
-
-        out = os.environ.get("GITHUB_OUTPUT")
-        if not out:
-          sys.exit(0)
-        with open(out, "a", encoding="utf-8") as f:
-          f.write(f"findings-count={findings_count}\n")
-        PY
-      env:
-        INPUT_PATH: ${{ inputs.path }}
-        INPUT_FORMAT: ${{ inputs.format }}
-        INPUT_SARIF_OUTPUT: ${{ inputs.sarif-output }}
+        python "${{ github.action_path }}/scripts/action_summary.py" \
+          --format "$SANCTIFIER_ACTION_FORMAT" \
+          --path "$SANCTIFIER_ACTION_PATH" \
+          --min-severity "$SANCTIFIER_ACTION_MIN_SEVERITY" \
+          --sarif-output "$SANCTIFIER_ACTION_SARIF_OUTPUT"
 
     - name: Upload SARIF
       if: >-
-        ${{ inputs.format == 'sarif'
-          && inputs.upload-sarif == 'true'
+        ${{ env.SANCTIFIER_ACTION_FORMAT == 'sarif'
+          && env.SANCTIFIER_ACTION_UPLOAD_SARIF == 'true'
           && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
       uses: github/codeql-action/upload-sarif@v3
       with:
-        sarif_file: ${{ inputs.sarif-output }}
+        sarif_file: ${{ env.SANCTIFIER_ACTION_SARIF_OUTPUT }}

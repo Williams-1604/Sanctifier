@@ -864,7 +864,7 @@ fn build_current_report(
 // ---------------------------------------------------------------------------
 
 pub fn exec(args: DiffArgs) -> anyhow::Result<()> {
-    let mut path = args.path.clone();
+    let path = args.path.clone();
 
     #[cfg(not(windows))]
     {

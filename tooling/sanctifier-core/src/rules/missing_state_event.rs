@@ -6,6 +6,7 @@ use syn::{parse_str, File, Item};
 pub struct MissingStateEventRule;
 
 impl MissingStateEventRule {
+    /// Create a new missing-state-event rule.
     pub fn new() -> Self {
         Self
     }
@@ -41,9 +42,13 @@ impl Rule for MissingStateEventRule {
                         if is_privileged_function(&fn_name) {
                             let mut has_privileged_mutation = false;
                             let mut has_event_emission = false;
-                            
-                            check_function_body(&f.block, &mut has_privileged_mutation, &mut has_event_emission);
-                            
+
+                            check_function_body(
+                                &f.block,
+                                &mut has_privileged_mutation,
+                                &mut has_event_emission,
+                            );
+
                             if has_privileged_mutation && !has_event_emission {
                                 let span = f.sig.span();
                                 violations.push(
@@ -97,7 +102,7 @@ fn check_function_body(
 ) {
     for stmt in &block.stmts {
         match stmt {
-            syn::Stmt::Expr(expr, _) | syn::Stmt::Expr(expr, None) => {
+            syn::Stmt::Expr(expr, _) => {
                 check_expr(expr, has_privileged_mutation, has_event_emission);
             }
             syn::Stmt::Local(local) => {
@@ -110,15 +115,11 @@ fn check_function_body(
     }
 }
 
-fn check_expr(
-    expr: &syn::Expr,
-    has_privileged_mutation: &mut bool,
-    has_event_emission: &mut bool,
-) {
+fn check_expr(expr: &syn::Expr, has_privileged_mutation: &mut bool, has_event_emission: &mut bool) {
     match expr {
         syn::Expr::MethodCall(m) => {
             let method_name = m.method.to_string();
-            
+
             // Check for storage mutations on privileged keys
             if method_name == "set" || method_name == "update" || method_name == "remove" {
                 let receiver_str = quote::quote!(#m.receiver).to_string();
@@ -132,7 +133,7 @@ fn check_expr(
                     }
                 }
             }
-            
+
             // Check for event emission
             if method_name == "publish" {
                 let receiver_str = quote::quote!(#m.receiver).to_string();
@@ -140,7 +141,7 @@ fn check_expr(
                     *has_event_emission = true;
                 }
             }
-            
+
             check_expr(&m.receiver, has_privileged_mutation, has_event_emission);
             for arg in &m.args {
                 check_expr(arg, has_privileged_mutation, has_event_emission);
@@ -195,7 +196,10 @@ mod tests {
             }
         "#;
         let violations = rule.check(source);
-        assert!(!violations.is_empty(), "admin change without event should be flagged");
+        assert!(
+            !violations.is_empty(),
+            "admin change without event should be flagged"
+        );
     }
 
     #[test]
@@ -210,7 +214,10 @@ mod tests {
             }
         "#;
         let violations = rule.check(source);
-        assert!(violations.is_empty(), "admin change with event should not be flagged");
+        assert!(
+            violations.is_empty(),
+            "admin change with event should not be flagged"
+        );
     }
 
     #[test]
@@ -224,6 +231,9 @@ mod tests {
             }
         "#;
         let violations = rule.check(source);
-        assert!(violations.is_empty(), "non-privileged function should not be flagged");
+        assert!(
+            violations.is_empty(),
+            "non-privileged function should not be flagged"
+        );
     }
 }

@@ -160,9 +160,6 @@ fn run() -> anyhow::Result<()> {
         Commands::Fix(args) => {
             commands::fix::exec(args)?;
         }
-        Commands::Fix(args) => {
-            commands::fix::exec(args)?;
-        }
         Commands::Update => {
             commands::update::exec()?;
         }
