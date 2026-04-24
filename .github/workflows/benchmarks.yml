@@ -7,6 +7,10 @@ on:
     paths:
       - 'contracts/**'
       - 'tooling/**'
+      - 'data/**'
+      - 'schemas/**'
+      - 'benchmarks/**'
+      - 'tests/vulnerability_db/**'
   workflow_dispatch:
 
 jobs:
@@ -15,6 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Data/schemas JSON performance snapshot
+        run: |
+          python benchmarks/data_schemas_perf.py --output benchmarks/data_schemas_perf.json
+          cat benchmarks/data_schemas_perf.json
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

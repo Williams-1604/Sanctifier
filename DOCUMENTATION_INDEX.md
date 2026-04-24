@@ -284,6 +284,7 @@ See: [QUICK_START.md - Verification](QUICK_START.md#-check-results-1-min)
 - Threat Model Notes: [docs/github-action-threat-model.md](docs/github-action-threat-model.md)
 - Action unit test fixtures: [tests/action/fixtures](tests/action/fixtures)
 - Vulnerability DB format and validation: [docs/vulnerability-database-format.md](docs/vulnerability-database-format.md)
+- Data + schemas performance budgets/benchmarks: [docs/data-schemas-performance.md](docs/data-schemas-performance.md)
 
 **Production Setup**
 
