@@ -260,6 +260,7 @@ See: [QUICK_START.md - Verification](QUICK_START.md#-check-results-1-min)
 - Action unit test fixtures: [tests/action/fixtures](tests/action/fixtures)
 - Vulnerability DB format and validation: [docs/vulnerability-database-format.md](docs/vulnerability-database-format.md)
 - Data + schemas performance budgets/benchmarks: [docs/data-schemas-performance.md](docs/data-schemas-performance.md)
+- Docs site navigation performance budgets/benchmarks: [docs/docs-navigation-performance.md](docs/docs-navigation-performance.md)
 
 **Production Setup**
 

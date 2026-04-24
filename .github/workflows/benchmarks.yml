@@ -25,6 +25,11 @@ jobs:
           python benchmarks/data_schemas_perf.py --output benchmarks/data_schemas_perf.json
           cat benchmarks/data_schemas_perf.json
 
+      - name: Docs navigation performance snapshot
+        run: |
+          python benchmarks/docs_nav_perf.py --output benchmarks/docs_nav_perf.json
+          cat benchmarks/docs_nav_perf.json
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
