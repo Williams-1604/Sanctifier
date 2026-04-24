@@ -4,6 +4,8 @@ import { useState, useCallback, useTransition, useMemo } from "react";
 import dynamic from "next/dynamic";
 import type { Severity } from "../types";
 import { transformReport, extractCallGraph, normalizeReport } from "../lib/transform";
+import { normalizeFindingCodeQuery, validateFindingCodeQuery } from "../lib/finding-filters";
+import { validateContractUpload } from "../lib/upload-validation";
 import {
   createWorkspaceFromSingleReport,
   extractErrorMessage,
@@ -40,6 +42,8 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<Tab>("findings");
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [isUploadingContract, setIsUploadingContract] = useState(false);
+  const [codeFilterInput, setCodeFilterInput] = useState("");
+  const [codeFilterError, setCodeFilterError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const currentReport = selectedContract?.report;
@@ -100,6 +104,13 @@ export default function DashboardPage() {
       return;
     }
 
+    const validationError = validateContractUpload(file);
+    if (validationError) {
+      setUploadStatus(null);
+      setError(validationError);
+      return;
+    }
+
     setError(null);
     setUploadStatus(`Analyzing ${file.name}...`);
     setIsUploadingContract(true);
@@ -139,6 +150,12 @@ export default function DashboardPage() {
       setIsUploadingContract(false);
     }
   }, [applyReport]);
+
+  const handleCodeFilterChange = useCallback((input: string) => {
+    const normalized = normalizeFindingCodeQuery(input);
+    setCodeFilterInput(normalized);
+    setCodeFilterError(validateFindingCodeQuery(normalized));
+  }, []);
 
   const hasData = findings.length > 0 || callGraphNodes.length > 0 || callGraphEdges.length > 0;
   const isProcessing = isPending || isUploadingContract;
@@ -208,14 +225,45 @@ export default function DashboardPage() {
                 {activeTab === "findings" && (
                   <>
                     <section>
-                      <h2 className="text-lg font-semibold mb-4">Filter by Severity</h2>
-                      <SeverityFilter selected={severityFilter} onChange={setSeverityFilter} />
+                      <h2 className="text-lg font-semibold mb-4">Filter Findings</h2>
+                      <div className="space-y-4">
+                        <SeverityFilter selected={severityFilter} onChange={setSeverityFilter} />
+                        <div className="max-w-xs">
+                          <label htmlFor="finding-code-filter" className="mb-1 block text-sm font-medium">
+                            Search by finding code
+                          </label>
+                          <input
+                            id="finding-code-filter"
+                            type="text"
+                            value={codeFilterInput}
+                            onChange={(event) => handleCodeFilterChange(event.target.value)}
+                            placeholder="S001"
+                            inputMode="text"
+                            autoCapitalize="characters"
+                            autoComplete="off"
+                            spellCheck={false}
+                            aria-invalid={Boolean(codeFilterError)}
+                            aria-describedby="finding-code-filter-help"
+                            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-950"
+                          />
+                          <p
+                            id="finding-code-filter-help"
+                            className={`mt-1 text-xs ${codeFilterError ? "text-red-600 dark:text-red-400" : "text-zinc-500 dark:text-zinc-400"}`}
+                          >
+                            {codeFilterError ?? "Use exact finding codes like S001, S012, or S020."}
+                          </p>
+                        </div>
+                      </div>
                     </section>
 
                     <section id="findings-panel" role="tabpanel" aria-labelledby="findings-tab">
                       <h2 className="text-lg font-semibold mb-4">Findings</h2>
                       <ErrorBoundary>
-                        <FindingsList findings={findings} severityFilter={severityFilter} />
+                        <FindingsList
+                          findings={findings}
+                          severityFilter={severityFilter}
+                          codeFilter={codeFilterError ? "" : codeFilterInput}
+                        />
                       </ErrorBoundary>
                     </section>
                   </>

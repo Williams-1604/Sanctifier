@@ -12,6 +12,7 @@ import type {
   UpgradeFinding,
   VulnMatch,
 } from "../types";
+import { canonicalizeFindingCode } from "./finding-filters";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -93,7 +94,7 @@ function toFinding(
 ): Finding {
   return {
     id,
-    code,
+    code: canonicalizeFindingCode(code),
     severity,
     category,
     title,

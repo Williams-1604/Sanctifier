@@ -6,10 +6,12 @@ import type { Finding, Severity } from "../types";
 import { CodeSnippet } from "./CodeSnippet";
 import { Sparkles } from "lucide-react";
 import { AiFixPanel } from "./AiFixPanel";
+import { filterFindings } from "../lib/finding-filters";
 
 interface FindingsListProps {
   findings: Finding[];
   severityFilter: Severity | "all";
+  codeFilter?: string;
 }
 
 /** Height reserved for each finding row in the virtual list (px). */
@@ -68,18 +70,17 @@ function FindingCard({ finding }: { finding: Finding }) {
   );
 }
 
-export function FindingsList({ findings, severityFilter }: FindingsListProps) {
+export function FindingsList({ findings, severityFilter, codeFilter = "" }: FindingsListProps) {
   const listRef = useRef<FixedSizeList>(null);
   const filtered = useMemo(() => {
-    return severityFilter === "all"
-      ? findings
-      : findings.filter((f) => f.severity === severityFilter);
-  }, [findings, severityFilter]);
+    return filterFindings(findings, severityFilter, codeFilter);
+  }, [codeFilter, findings, severityFilter]);
 
   // Scroll back to top whenever the filter changes.
-  const prevFilterRef = useRef(severityFilter);
-  if (prevFilterRef.current !== severityFilter) {
-    prevFilterRef.current = severityFilter;
+  const prevFiltersRef = useRef(`${severityFilter}:${codeFilter}`);
+  const currentFilters = `${severityFilter}:${codeFilter}`;
+  if (prevFiltersRef.current !== currentFilters) {
+    prevFiltersRef.current = currentFilters;
     listRef.current?.scrollToItem(0);
   }
 

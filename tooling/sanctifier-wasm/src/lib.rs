@@ -30,6 +30,8 @@ const MAX_SOURCE_SIZE: usize = 10 * 1024 * 1024;
 
 /// Minimum required source code size (1 byte).
 const MIN_SOURCE_SIZE: usize = 1;
+/// Namespace prefix for browser-side wasm asset caches.
+const CACHE_NAMESPACE: &str = "sanctifier-wasm";
 
 // Improve panic messages in the browser console.
 fn set_panic_hook() {
@@ -144,6 +146,15 @@ pub struct ProgressEvent {
 pub struct ProgressiveAnalysisResult {
     pub events: Vec<ProgressEvent>,
     pub result: AnalysisResult,
+}
+
+/// Minimal metadata required by browser cache layers.
+#[derive(Serialize)]
+pub struct CacheMetadata {
+    pub package: &'static str,
+    pub version: &'static str,
+    pub schema_version: &'static str,
+    pub cache_key: String,
 }
 
 // ── Helpers to convert core types into Finding ───────────────────────────────
@@ -326,6 +337,10 @@ fn build_progress_events(total_findings: usize) -> Vec<ProgressEvent> {
         .collect()
 }
 
+fn build_cache_key() -> String {
+    format!("{}:{}:{}", CACHE_NAMESPACE, env!("CARGO_PKG_VERSION"), SCHEMA_VERSION)
+}
+
 // ── Public WASM API ───────────────────────────────────────────────────────────
 
 /// Analyse Soroban contract source code with default configuration.
@@ -448,4 +463,25 @@ pub fn schema_version() -> String {
 #[wasm_bindgen]
 pub fn default_config_json() -> String {
     serde_json::to_string_pretty(&SanctifyConfig::default()).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Return a deterministic cache key for wasm module assets.
+///
+/// Frontend loaders can use this value to bust stale service-worker and
+/// CacheStorage entries whenever the package or schema version changes.
+#[wasm_bindgen]
+pub fn asset_cache_key() -> String {
+    build_cache_key()
+}
+
+/// Return cache metadata for offline-first consumers.
+#[wasm_bindgen]
+pub fn cache_metadata() -> JsValue {
+    let metadata = CacheMetadata {
+        package: "sanctifier-wasm",
+        version: env!("CARGO_PKG_VERSION"),
+        schema_version: SCHEMA_VERSION,
+        cache_key: build_cache_key(),
+    };
+    serde_wasm_bindgen::to_value(&metadata).unwrap_or(JsValue::NULL)
 }

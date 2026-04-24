@@ -7,6 +7,8 @@ This note documents how the dashboard behaves when backend analysis is unavailab
 - Analyze API route: `frontend/app/api/analyze/route.ts`
 - Dashboard upload/parse flow: `frontend/app/dashboard/page.tsx`
 - Upload controls: `frontend/app/components/DashboardHeader.tsx`
+- Finding filter logic: `frontend/app/lib/finding-filters.ts`
+- Upload validation: `frontend/app/lib/upload-validation.ts`
 
 ## Operational modes
 
@@ -23,6 +25,13 @@ This note documents how the dashboard behaves when backend analysis is unavailab
   - `SANCTIFIER_BIN` if set
   - `sanctifier` in PATH otherwise
 - Missing binary, timeout, invalid content type, unsupported extension, invalid UTF-8, and oversized payloads return explicit API errors.
+- The dashboard now validates extension and size client-side before upload and surfaces errors immediately.
+
+### Finding-code filtering mode
+
+- The findings panel supports exact finding-code search using canonical format `S###` (example: `S001`).
+- Input is normalized to uppercase and validated before filtering.
+- Legacy non-canonical codes are normalized to canonical `S` codes at transform time to keep filtering predictable.
 
 ## Dev guardrails
 
