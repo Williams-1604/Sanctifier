@@ -56,10 +56,10 @@ export function getErrorMessage(
     params?: Record<string, string | number>
 ): string {
     const keys = key.split(".");
-    let message: any = errorMessages;
+    let message: unknown = errorMessages;
 
     for (const k of keys) {
-        message = message?.[k];
+        message = (message as Record<string, unknown>)?.[k];
     }
 
     if (typeof message === "function") {

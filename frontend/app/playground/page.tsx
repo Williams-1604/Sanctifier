@@ -22,7 +22,7 @@ export default function PlaygroundPage() {
   const [isRunning, setIsRunning] = useState(false);
 
   const addLog = (text: string) => {
-    setLogs((prev) => [...prev, \`[\${new Date().toLocaleTimeString()}] \${text}\`]);
+    setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${text}`]);
   };
 
   const runCode = async () => {
@@ -130,7 +130,7 @@ export default function PlaygroundPage() {
         </div>
       </main>
 
-      <style jsx global>{\`
+      <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 8px;
         }
@@ -144,7 +144,7 @@ export default function PlaygroundPage() {
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
           background: rgba(161, 161, 170, 0.3);
         }
-      \`}</style>
+      `}</style>
     </div>
   );
 }

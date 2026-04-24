@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useTransition, useMemo } from "react";
+import { useState, useCallback, useTransition } from "react";
 import dynamic from "next/dynamic";
 import type { Severity } from "../types";
 import { transformReport, extractCallGraph, normalizeReport } from "../lib/transform";

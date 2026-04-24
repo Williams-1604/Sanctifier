@@ -139,7 +139,7 @@ export function AiFixPanel({ finding, onClose }: AiFixPanelProps) {
             onClick={onClose}
             className="w-full py-3 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-bold hover:scale-[1.02] transition-transform active:scale-95 shadow-xl"
           >
-            I'll review this fix
+            I&apos;ll review this fix
           </button>
         </div>
       </div>

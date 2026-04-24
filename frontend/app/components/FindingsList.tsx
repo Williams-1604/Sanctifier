@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import type { Finding, Severity } from "../types";
 import { CodeSnippet } from "./CodeSnippet";
@@ -35,7 +35,12 @@ const severityLabels: Record<Severity, string> = {
   low: "Low severity",
 };
 
-function FindingCard({ finding }: { finding: Finding }) {
+interface FindingCardProps {
+  finding: Finding;
+  onSelectAiFix: (finding: Finding) => void;
+}
+
+function FindingCard({ finding, onSelectAiFix }: FindingCardProps) {
   return (
     <div className={`rounded-lg border p-4 ${severityColors[finding.severity]}`}>
       <div className="flex items-start justify-between gap-4">
@@ -43,7 +48,16 @@ function FindingCard({ finding }: { finding: Finding }) {
           <span className="text-xs font-semibold uppercase tracking-wide opacity-80">
             {finding.category}
           </span>
-          <h3 className="mt-1 font-medium">{finding.title}</h3>
+          <div className="flex items-center gap-3">
+            <h3 className="mt-1 font-medium">{finding.title}</h3>
+            <button 
+              onClick={() => onSelectAiFix(finding)}
+              className="mt-1 flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
+            >
+              <Sparkles size={10} />
+              ASK AI
+            </button>
+          </div>
           <p className="mt-1 text-sm opacity-90">{finding.location}</p>
           {finding.suggestion && (
             <p className="mt-2 text-sm italic">💡 {finding.suggestion}</p>
@@ -71,23 +85,25 @@ function FindingCard({ finding }: { finding: Finding }) {
 }
 
 export function FindingsList({ findings, severityFilter, codeFilter = "" }: FindingsListProps) {
+  const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const listRef = useRef<FixedSizeList>(null);
+  
   const filtered = useMemo(() => {
     return filterFindings(findings, severityFilter, codeFilter);
   }, [codeFilter, findings, severityFilter]);
 
   // Scroll back to top whenever the filter changes.
-  const prevFiltersRef = useRef(`${severityFilter}:${codeFilter}`);
-  const currentFilters = `${severityFilter}:${codeFilter}`;
-  if (prevFiltersRef.current !== currentFilters) {
-    prevFiltersRef.current = currentFilters;
+  useEffect(() => {
     listRef.current?.scrollToItem(0);
-  }
+  }, [severityFilter, codeFilter]);
 
   const Row = useCallback(
     ({ index, style }: ListChildComponentProps) => (
       <div style={{ ...style, paddingBottom: 16 }}>
-        <FindingCard finding={filtered[index]} />
+        <FindingCard 
+          finding={filtered[index]} 
+          onSelectAiFix={(f) => setSelectedFinding(f)} 
+        />
       </div>
     ),
     [filtered],
@@ -105,8 +121,13 @@ export function FindingsList({ findings, severityFilter, codeFilter = "" }: Find
   if (filtered.length < VIRTUALISE_THRESHOLD) {
     return (
       <div className="space-y-4">
+        <AiFixPanel finding={selectedFinding} onClose={() => setSelectedFinding(null)} />
         {filtered.map((f) => (
-          <FindingCard key={f.id} finding={f} />
+          <FindingCard 
+            key={f.id} 
+            finding={f} 
+            onSelectAiFix={(finding) => setSelectedFinding(finding)} 
+          />
         ))}
       </div>
     );
@@ -116,14 +137,17 @@ export function FindingsList({ findings, severityFilter, codeFilter = "" }: Find
   const listHeight = Math.min(filtered.length * ITEM_HEIGHT, MAX_LIST_HEIGHT);
 
   return (
-    <FixedSizeList
-      height={listHeight}
-      itemCount={filtered.length}
-      itemSize={ITEM_HEIGHT}
-      width="100%"
-      ref={listRef}
-    >
-      {Row}
-    </FixedSizeList>
+    <div className="relative">
+      <AiFixPanel finding={selectedFinding} onClose={() => setSelectedFinding(null)} />
+      <FixedSizeList
+        height={listHeight}
+        itemCount={filtered.length}
+        itemSize={ITEM_HEIGHT}
+        width="100%"
+        ref={listRef}
+      >
+        {Row}
+      </FixedSizeList>
+    </div>
   );
 }
