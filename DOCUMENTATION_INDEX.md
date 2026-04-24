@@ -152,6 +152,14 @@
 - Scheduled validation
 - Artifact management
 
+### Sanctifier Scan GitHub Action
+
+**Location:** `action.yml`
+
+- Composite action for running `sanctifier analyze` in CI
+- Support matrix: `docs/github-action-support-matrix.md` (includes debug logging mode)
+- Threat model notes: `docs/github-action-threat-model.md`
+
 ---
 
 ## 📚 Documentation Map by Use Case

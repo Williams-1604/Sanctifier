@@ -33,6 +33,10 @@ inputs:
     description: Path for generated SARIF report
     required: false
     default: sanctifier-results.sarif
+  debug:
+    description: Enable verbose debug logging for the action steps (safe-by-default; no secrets)
+    required: false
+    default: "false"
 
 outputs:
   findings-count:
@@ -51,6 +55,7 @@ runs:
           --format "${{ inputs.format }}" \
           --upload-sarif "${{ inputs.upload-sarif }}" \
           --sarif-output "${{ inputs.sarif-output }}" \
+          --debug "${{ inputs.debug }}" \
           --output "$RUNNER_TEMP/sanctifier_action_inputs"
         cat "$RUNNER_TEMP/sanctifier_action_inputs" >> "$GITHUB_ENV"
 
@@ -63,6 +68,9 @@ runs:
           --output "$RUNNER_TEMP/sanctifier_cli_version"
 
         version="$(cat "$RUNNER_TEMP/sanctifier_cli_version" || true)"
+        if [ "${SANCTIFIER_ACTION_DEBUG:-false}" = "true" ]; then
+          echo "[sanctifier-action][debug] action_ref=${{ github.action_ref }} requested_version=${{ inputs.version }} resolved_version=${version:-latest}"
+        fi
         if [ -n "$version" ]; then
           echo "Installing sanctifier-cli==$version"
           cargo install sanctifier-cli --locked --version "$version"
@@ -74,6 +82,9 @@ runs:
     - name: Analyze project
       shell: bash
       run: |
+        if [ "${SANCTIFIER_ACTION_DEBUG:-false}" = "true" ]; then
+          echo "[sanctifier-action][debug] scan path=$SANCTIFIER_ACTION_PATH format=$SANCTIFIER_ACTION_FORMAT min_severity=$SANCTIFIER_ACTION_MIN_SEVERITY"
+        fi
         if [ "$SANCTIFIER_ACTION_FORMAT" = "sarif" ]; then
           mkdir -p "$(dirname "$SANCTIFIER_ACTION_SARIF_OUTPUT")"
           sanctifier analyze "$SANCTIFIER_ACTION_PATH" \

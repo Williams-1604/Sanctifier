@@ -21,6 +21,7 @@ class ActionInputs:
     format: str
     upload_sarif: str
     sarif_output: str
+    debug: str
 
 
 def _normalise_bool(value: str, *, name: str) -> str:
@@ -60,6 +61,7 @@ def validate_inputs(
     format: str,
     upload_sarif: str,
     sarif_output: str,
+    debug: str,
 ) -> ActionInputs:
     fmt = (format or "").strip().lower()
     if fmt not in _ALLOWED_FORMATS:
@@ -77,6 +79,7 @@ def validate_inputs(
         format=fmt,
         upload_sarif=_normalise_bool(upload_sarif, name="upload-sarif"),
         sarif_output=_validate_path(sarif_output, name="sarif-output", allow_missing=True),
+        debug=_normalise_bool(debug, name="debug"),
     )
 
 
@@ -89,6 +92,7 @@ def write_env_file(inputs: ActionInputs, output: Path) -> None:
                 f"SANCTIFIER_ACTION_FORMAT={inputs.format}",
                 f"SANCTIFIER_ACTION_UPLOAD_SARIF={inputs.upload_sarif}",
                 f"SANCTIFIER_ACTION_SARIF_OUTPUT={inputs.sarif_output}",
+                f"SANCTIFIER_ACTION_DEBUG={inputs.debug}",
                 "",
             ]
         ),
@@ -103,6 +107,7 @@ def main() -> int:
     parser.add_argument("--format", default=os.environ.get("INPUT_FORMAT", "sarif"))
     parser.add_argument("--upload-sarif", default=os.environ.get("INPUT_UPLOAD_SARIF", "true"))
     parser.add_argument("--sarif-output", default=os.environ.get("INPUT_SARIF_OUTPUT", "sanctifier-results.sarif"))
+    parser.add_argument("--debug", default=os.environ.get("INPUT_DEBUG", "false"))
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -113,10 +118,20 @@ def main() -> int:
             format=args.format,
             upload_sarif=args.upload_sarif,
             sarif_output=args.sarif_output,
+            debug=args.debug,
         )
     except ValueError as exc:
         print(f"::error title=Invalid Input::Sanctifier action input error: {exc}", file=sys.stderr)
         return 2
+
+    if inputs.debug == "true":
+        print(
+            "[sanctifier-action][debug] "
+            f"path={inputs.path!r} format={inputs.format!r} "
+            f"min_severity={inputs.min_severity!r} upload_sarif={inputs.upload_sarif!r} "
+            f"sarif_output={inputs.sarif_output!r}",
+            file=sys.stderr,
+        )
 
     write_env_file(inputs, Path(args.output))
     return 0

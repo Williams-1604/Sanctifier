@@ -15,6 +15,7 @@ class ActionInputTests(unittest.TestCase):
             format="SARIF",
             upload_sarif="yes",
             sarif_output="reports/results.sarif",
+            debug="TRUE",
         )
 
         self.assertEqual(got.path, ".")
@@ -22,6 +23,7 @@ class ActionInputTests(unittest.TestCase):
         self.assertEqual(got.format, "sarif")
         self.assertEqual(got.upload_sarif, "true")
         self.assertEqual(got.sarif_output, "reports/results.sarif")
+        self.assertEqual(got.debug, "true")
 
     def test_rejects_unknown_format(self) -> None:
         from scripts.action_inputs import validate_inputs
@@ -33,6 +35,7 @@ class ActionInputTests(unittest.TestCase):
                 format="xml",
                 upload_sarif="true",
                 sarif_output="out.sarif",
+                debug="false",
             )
 
     def test_rejects_path_traversal(self) -> None:
@@ -45,6 +48,7 @@ class ActionInputTests(unittest.TestCase):
                 format="sarif",
                 upload_sarif="true",
                 sarif_output="out.sarif",
+                debug="false",
             )
 
     def test_rejects_missing_scan_path(self) -> None:
@@ -57,6 +61,7 @@ class ActionInputTests(unittest.TestCase):
                 format="sarif",
                 upload_sarif="true",
                 sarif_output="out.sarif",
+                debug="false",
             )
 
 
