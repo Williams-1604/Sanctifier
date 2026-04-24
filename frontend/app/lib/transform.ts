@@ -23,6 +23,48 @@ function arrayValue<T>(value: unknown): T[] {
 
 export function normalizeReport(input: unknown): AnalysisReport {
   const parsed = isRecord(input) ? input : {};
+  
+  // Handle new WASM engine format (AnalysisResult with findings array)
+  if (Array.isArray(parsed.findings)) {
+    const findingsArray = parsed.findings as Array<Record<string, unknown>>;
+    const report: AnalysisReport = {
+      size_warnings: [],
+      unsafe_patterns: [],
+      auth_gaps: [],
+      panic_issues: [],
+      arithmetic_issues: [],
+      storage_collisions: [],
+      event_issues: [],
+      unhandled_results: [],
+      upgrade_reports: [],
+      smt_violations: [],
+      vuln_matches: [],
+      call_graph: [],
+    };
+
+    findingsArray.forEach((f) => {
+      const code = String(f.code || "");
+      const category = String(f.category || "");
+      const message = String(f.message || "");
+      const location = String(f.location || "");
+
+      if (category === "authentication") {
+        report.auth_gaps!.push({ code, function_name: location });
+      } else if (category === "panic_handling") {
+        report.panic_issues!.push({ code, function_name: location, issue_type: "panic", location });
+      } else if (category === "arithmetic") {
+        report.arithmetic_issues!.push({ code, function_name: location, operation: message, suggestion: "", location });
+      } else if (category === "storage_limits") {
+        report.size_warnings!.push({ code, struct_name: location, estimated_size: 0, limit: 0, level: "ExceedsLimit" });
+      } else {
+        // Fallback to vuln_matches or similar
+        report.vuln_matches!.push({ code, vuln_id: code, title: message, severity: "medium", location, description: message });
+      }
+    });
+
+    return report;
+  }
+
   const findings = isRecord(parsed.findings) ? parsed.findings : parsed;
   const authGaps: AnalysisReport["auth_gaps"] = [];
 

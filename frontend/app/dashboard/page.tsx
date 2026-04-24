@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useTransition, useMemo } from "react";
+import { useState, useCallback, useTransition } from "react";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import type { CallGraphNode, CallGraphEdge, Finding, Severity } from "../types";
 import { transformReport, extractCallGraph, normalizeReport } from "../lib/transform";
