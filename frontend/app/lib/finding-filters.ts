@@ -1,4 +1,5 @@
 import type { Finding, Severity } from "../types";
+import { errorMessages } from "./error-messages";
 
 const LEGACY_CODE_MAP: Record<string, string> = {
   AUTH_GAP: "S001",
@@ -41,7 +42,7 @@ export function validateFindingCodeQuery(query: string): string | null {
   }
 
   if (!FINDING_CODE_PATTERN.test(query)) {
-    return "Use finding code format S### (for example: S001).";
+    return errorMessages.findingCode.invalidFormat;
   }
 
   return null;
