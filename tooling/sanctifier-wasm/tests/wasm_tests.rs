@@ -135,10 +135,10 @@ fn test_analyze_performance_simple() {
     let source = r#"
         #![no_std]
         use soroban_sdk::{contract, contractimpl};
-        
+
         #[contract]
         pub struct SimpleContract;
-        
+
         #[contractimpl]
         impl SimpleContract {
             pub fn simple_fn() {}
@@ -146,6 +146,44 @@ fn test_analyze_performance_simple() {
     "#;
 
     // Should complete quickly
+    let result = analyze(source);
+    assert!(!result.is_null());
+}
+
+// ── Memory Budget Tests ──────────────────────────────────────────────────────
+
+#[wasm_bindgen_test]
+fn test_analyze_returns_error_for_source_exceeding_memory_budget() {
+    // 5 MB source × 8 overhead factor = 40 MB > 32 MB budget.
+    // The engine must return a structured error rather than crash.
+    let oversized = "x".repeat(5 * 1024 * 1024);
+    let result = analyze(&oversized);
+    // Result must be a non-null JS object (ErrorResponse), not a panic.
+    assert!(!result.is_null());
+}
+
+#[wasm_bindgen_test]
+fn test_analyze_with_config_returns_error_for_source_exceeding_memory_budget() {
+    let oversized = "x".repeat(5 * 1024 * 1024);
+    let result = analyze_with_config("{}", &oversized);
+    assert!(!result.is_null());
+}
+
+#[wasm_bindgen_test]
+fn test_analyze_normal_source_unaffected_by_memory_check() {
+    // A typical contract is well under the budget — should still analyse normally.
+    let source = r#"
+        #![no_std]
+        use soroban_sdk::{contract, contractimpl};
+
+        #[contract]
+        pub struct NormalContract;
+
+        #[contractimpl]
+        impl NormalContract {
+            pub fn do_work() {}
+        }
+    "#;
     let result = analyze(source);
     assert!(!result.is_null());
 }

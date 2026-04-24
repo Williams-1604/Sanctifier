@@ -30,6 +30,21 @@ const MAX_SOURCE_SIZE: usize = 10 * 1024 * 1024;
 
 /// Minimum required source code size (1 byte).
 const MIN_SOURCE_SIZE: usize = 1;
+
+/// Conservative per-invocation memory budget (32 MB).
+///
+/// WASM32 has a 4 GB virtual address space but the default linear memory
+/// grows in 64 KB pages.  Capping working-set estimation to 32 MB prevents
+/// runaway allocations from stalling the browser tab.  The heuristic
+/// (`MEMORY_OVERHEAD_FACTOR × source_len`) is deliberately pessimistic so
+/// the check fires before an actual OOM rather than after.
+const MEMORY_BUDGET_BYTES: usize = 32 * 1024 * 1024;
+
+/// Conservative multiplier: the analyser expands source into several internal
+/// representations (tokens, AST nodes, finding lists).  A factor of 8 covers
+/// the worst-case observed peak without live heap profiling.
+const MEMORY_OVERHEAD_FACTOR: usize = 8;
+
 /// Namespace prefix for browser-side wasm asset caches.
 const CACHE_NAMESPACE: &str = "sanctifier-wasm";
 
@@ -58,6 +73,25 @@ fn validate_source(source: &str) -> Result<(), String> {
         ));
     }
 
+    Ok(())
+}
+
+/// Estimate worst-case heap usage for the given source length and verify it
+/// fits within `MEMORY_BUDGET_BYTES`.
+///
+/// # Errors
+/// Returns an `MEMORY_BUDGET_EXCEEDED` error string when the estimated working
+/// set would exceed the budget.  This is a pre-flight check — it fires before
+/// any allocation so the WASM linear memory is never exhausted silently.
+fn check_memory_budget(source_len: usize) -> Result<(), String> {
+    let estimated = source_len.saturating_mul(MEMORY_OVERHEAD_FACTOR);
+    if estimated > MEMORY_BUDGET_BYTES {
+        return Err(format!(
+            "Estimated working set {} bytes exceeds memory budget of {} bytes. \
+             Split the contract into smaller files.",
+            estimated, MEMORY_BUDGET_BYTES
+        ));
+    }
     Ok(())
 }
 
@@ -374,6 +408,15 @@ pub fn analyze(source: &str) -> JsValue {
         return serde_wasm_bindgen::to_value(&error).unwrap_or(JsValue::NULL);
     }
 
+    if let Err(err) = check_memory_budget(source.len()) {
+        let error = ErrorResponse {
+            error_code: "MEMORY_BUDGET_EXCEEDED".to_string(),
+            message: err,
+            schema_version: SCHEMA_VERSION,
+        };
+        return serde_wasm_bindgen::to_value(&error).unwrap_or(JsValue::NULL);
+    }
+
     let analyzer = Analyzer::new(SanctifyConfig::default());
     let result = run_analysis(&analyzer, source);
     serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
@@ -401,6 +444,15 @@ pub fn analyze_with_config(config_json: &str, source: &str) -> JsValue {
     if let Err(err) = validate_source(source) {
         let error = ErrorResponse {
             error_code: "INVALID_INPUT".to_string(),
+            message: err,
+            schema_version: SCHEMA_VERSION,
+        };
+        return serde_wasm_bindgen::to_value(&error).unwrap_or(JsValue::NULL);
+    }
+
+    if let Err(err) = check_memory_budget(source.len()) {
+        let error = ErrorResponse {
+            error_code: "MEMORY_BUDGET_EXCEEDED".to_string(),
             message: err,
             schema_version: SCHEMA_VERSION,
         };
@@ -489,4 +541,82 @@ pub fn cache_metadata() -> JsValue {
         cache_key: build_cache_key(),
     };
     serde_wasm_bindgen::to_value(&metadata).unwrap_or(JsValue::NULL)
+}
+
+// ── Native unit tests (compile for host, not wasm32) ─────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── validate_source ───────────────────────────────────────────────────────
+
+    #[test]
+    fn validate_source_rejects_empty() {
+        assert!(validate_source("").is_err());
+    }
+
+    #[test]
+    fn validate_source_accepts_one_byte() {
+        assert!(validate_source("x").is_ok());
+    }
+
+    #[test]
+    fn validate_source_rejects_above_max_size() {
+        let oversized = "x".repeat(MAX_SOURCE_SIZE + 1);
+        assert!(validate_source(&oversized).is_err());
+    }
+
+    #[test]
+    fn validate_source_accepts_at_max_size() {
+        let at_limit = "x".repeat(MAX_SOURCE_SIZE);
+        assert!(validate_source(&at_limit).is_ok());
+    }
+
+    // ── check_memory_budget ───────────────────────────────────────────────────
+
+    #[test]
+    fn memory_budget_accepts_small_source() {
+        // 1 KB source → 8 KB estimated — well within 32 MB budget.
+        assert!(check_memory_budget(1024).is_ok());
+    }
+
+    #[test]
+    fn memory_budget_accepts_source_at_exact_limit() {
+        // MEMORY_BUDGET_BYTES / MEMORY_OVERHEAD_FACTOR is the largest source
+        // that still passes the budget check.
+        let max_ok = MEMORY_BUDGET_BYTES / MEMORY_OVERHEAD_FACTOR;
+        assert!(check_memory_budget(max_ok).is_ok());
+    }
+
+    #[test]
+    fn memory_budget_rejects_source_one_byte_above_limit() {
+        let just_over = MEMORY_BUDGET_BYTES / MEMORY_OVERHEAD_FACTOR + 1;
+        let result = check_memory_budget(just_over);
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("memory budget"), "expected budget message, got: {msg}");
+    }
+
+    #[test]
+    fn memory_budget_rejects_max_source_size() {
+        // MAX_SOURCE_SIZE (10 MB) × 8 = 80 MB > 32 MB budget.
+        assert!(check_memory_budget(MAX_SOURCE_SIZE).is_err());
+    }
+
+    #[test]
+    fn memory_budget_saturating_mul_does_not_overflow() {
+        // usize::MAX would overflow a plain multiply — saturating_mul must handle it.
+        let result = check_memory_budget(usize::MAX);
+        assert!(result.is_err()); // saturates above budget, correctly rejected
+    }
+
+    // ── build_cache_key ───────────────────────────────────────────────────────
+
+    #[test]
+    fn cache_key_contains_namespace_and_versions() {
+        let key = build_cache_key();
+        assert!(key.contains(CACHE_NAMESPACE));
+        assert!(key.contains(SCHEMA_VERSION));
+    }
 }
