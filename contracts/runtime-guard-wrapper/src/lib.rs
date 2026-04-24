@@ -11,6 +11,11 @@ const INVARIANTS_CHECKED: &str = "invariants_checked";
 const GUARD_FAILURES: &str = "guard_failures";
 const EXECUTION_METRICS: &str = "exec_metrics";
 const HEALTHY_STORAGE_LIMIT: u32 = 64;
+const CONTRACT_VERSION_KEY: &str = "version";
+
+/// Current storage schema version. Increment when persistent storage layout
+/// changes and provide a migration path in `docs/contract-versioning.md`.
+pub const CONTRACT_VERSION: u32 = 1;
 
 mod event_fixtures {
     use soroban_sdk::{Env, Symbol};
@@ -116,11 +121,23 @@ impl RuntimeGuardWrapper {
             &Vec::<(u32, bool, u64, u64)>::new(&env),
         );
 
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, CONTRACT_VERSION_KEY), &CONTRACT_VERSION);
+
         Self::emit_guard_event(
             env,
             event_fixtures::EVENT_WRAPPER_INITIALIZED,
             event_fixtures::STATUS_SUCCESS,
         );
+    }
+
+    /// Returns the on-chain schema version stamped during `init`.
+    pub fn get_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get::<Symbol, u32>(&Symbol::new(&env, CONTRACT_VERSION_KEY))
+            .unwrap_or(CONTRACT_VERSION)
     }
 
     pub fn get_wrapped_contract(env: Env) -> Address {

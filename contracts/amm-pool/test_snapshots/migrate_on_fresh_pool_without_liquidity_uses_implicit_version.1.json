@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 4,
+    "address": 1,
     "nonce": 0
   },
   "auth": [
@@ -11,31 +11,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "add_liquidity",
+              "function_name": "migrate",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "u128": {
-                    "hi": 0,
-                    "lo": 4000
-                  }
-                },
-                {
-                  "u128": {
-                    "hi": 0,
-                    "lo": 9000
-                  }
-                },
-                {
-                  "u128": {
-                    "hi": 0,
-                    "lo": 5000
-                  }
+                  "u32": 1
                 }
               ]
             }
@@ -83,81 +62,12 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "ReserveA"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u128": {
-                            "hi": 0,
-                            "lo": 4000
-                          }
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "ReserveB"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u128": {
-                            "hi": 0,
-                            "lo": 9000
-                          }
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "TokenA"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "TokenB"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "TotalSupply"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u128": {
-                            "hi": 0,
-                            "lo": 6000
-                          }
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
                               "symbol": "Version"
                             }
                           ]
                         },
                         "val": {
-                          "u32": 1
+                          "u32": 2
                         }
                       }
                     ]
@@ -242,36 +152,11 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "add_liquidity"
+                "symbol": "migrate"
               }
             ],
             "data": {
-              "vec": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "u128": {
-                    "hi": 0,
-                    "lo": 4000
-                  }
-                },
-                {
-                  "u128": {
-                    "hi": 0,
-                    "lo": 9000
-                  }
-                },
-                {
-                  "u128": {
-                    "hi": 0,
-                    "lo": 5000
-                  }
-                }
-              ]
+              "u32": 1
             }
           }
         }
@@ -290,14 +175,11 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "add_liquidity"
+                "symbol": "migrate"
               }
             ],
             "data": {
-              "u128": {
-                "hi": 0,
-                "lo": 5000
-              }
+              "bool": true
             }
           }
         }
@@ -319,19 +201,10 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "get_price"
+                "symbol": "get_version"
               }
             ],
-            "data": {
-              "vec": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                }
-              ]
-            }
+            "data": "void"
           }
         }
       },
@@ -349,14 +222,11 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "get_price"
+                "symbol": "get_version"
               }
             ],
             "data": {
-              "u128": {
-                "hi": 0,
-                "lo": 0
-              }
+              "u32": 2
             }
           }
         }

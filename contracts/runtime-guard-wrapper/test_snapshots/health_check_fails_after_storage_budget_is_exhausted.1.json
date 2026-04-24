@@ -1469,6 +1469,14 @@
                       },
                       {
                         "key": {
+                          "symbol": "version"
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
                           "symbol": "wrapped_contract_addr"
                         },
                         "val": {

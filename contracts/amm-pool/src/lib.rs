@@ -7,6 +7,10 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, 
 const MINIMUM_LIQUIDITY: u128 = 1_000;
 const PRICE_SCALE: u128 = 1_000_000;
 
+/// Current storage schema version. Increment when storage layout changes and
+/// bump the Cargo.toml minor version alongside a migration entry.
+pub const CONTRACT_VERSION: u32 = 1;
+
 #[contracttype]
 #[derive(Clone, Eq, PartialEq)]
 enum DataKey {
@@ -15,6 +19,10 @@ enum DataKey {
     ReserveA,
     ReserveB,
     TotalSupply,
+    /// Stores the on-chain schema version written by the first add_liquidity
+    /// call or an explicit migrate(). Absent on pre-versioning deployments,
+    /// which are treated as version 1.
+    Version,
 }
 
 #[contracterror]
@@ -68,6 +76,9 @@ impl AmmPool {
 
             write_pair(&env, token_a, token_b);
             write_pool_state(&env, amount_a, amount_b, initial_liquidity);
+            env.storage()
+                .instance()
+                .set(&DataKey::Version, &CONTRACT_VERSION);
             return minted;
         }
 
@@ -205,6 +216,34 @@ impl AmmPool {
         };
         write_pool_state(&env, next_reserve_a, next_reserve_b, total_supply);
         amount_out
+    }
+
+    /// Returns the on-chain schema version. Pre-versioning pools without a
+    /// stored key are implicitly at version 1.
+    pub fn get_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get::<DataKey, u32>(&DataKey::Version)
+            .unwrap_or(CONTRACT_VERSION)
+    }
+
+    /// Advance the schema version from `from_version` to `from_version + 1`.
+    /// Returns `true` on success and `false` when the stored version does not
+    /// match `from_version` (prevents replaying an already-applied migration).
+    pub fn migrate(env: Env, from_version: u32) -> bool {
+        env.current_contract_address().require_auth();
+        let current: u32 = env
+            .storage()
+            .instance()
+            .get::<DataKey, u32>(&DataKey::Version)
+            .unwrap_or(CONTRACT_VERSION);
+        if current != from_version {
+            return false;
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::Version, &current.saturating_add(1));
+        true
     }
 
     pub fn get_price(env: Env, token_in: Address, token_out: Address) -> u128 {

@@ -115,6 +115,15 @@
 - Upgrade/admin risk fixture notes for hardened validation paths
 - SEP-41 conformance fixture entrypoint: `s012_token_interface.rs`
 
+### Contract Versioning Conventions
+
+**[contracts/fixtures/versioning/README.md](contracts/fixtures/versioning/README.md)**
+
+- `CONTRACT_VERSION` constant and `get_version` / `migrate` convention
+- Named test fixtures: `fixture_empty_pool`, `fixture_v1_funded_pool`, `fixture_v2_pool`, `fixture_initialized`, `fixture_active`
+- Coverage matrix for all versioning properties (stamp-on-init, idempotency, migration chain, replay prevention)
+- Step-by-step guide for contributors adding a new schema version
+
 ### Sanctifier CLI Deploy Command
 
 **Location:** `tooling/sanctifier-cli/src/commands/deploy.rs`

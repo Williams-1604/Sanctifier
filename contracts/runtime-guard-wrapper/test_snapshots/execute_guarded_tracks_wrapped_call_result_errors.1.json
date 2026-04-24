@@ -331,10 +331,17 @@
             "data": {
               "vec": [
                 {
-                  "symbol": "missing"
+                  "symbol": "sum"
                 },
                 {
-                  "vec": []
+                  "vec": [
+                    {
+                      "symbol": "badarg"
+                    },
+                    {
+                      "u32": 3
+                    }
+                  ]
                 }
               ]
             }
@@ -387,7 +394,7 @@
             ],
             "data": {
               "error": {
-                "contract": 3
+                "contract": 4
               }
             }
           }
@@ -408,7 +415,7 @@
               },
               {
                 "error": {
-                  "contract": 3
+                  "contract": 4
                 }
               }
             ],
@@ -433,7 +440,7 @@
               },
               {
                 "error": {
-                  "contract": 3
+                  "contract": 4
                 }
               }
             ],
@@ -448,10 +455,17 @@
                 {
                   "vec": [
                     {
-                      "symbol": "missing"
+                      "symbol": "sum"
                     },
                     {
-                      "vec": []
+                      "vec": [
+                        {
+                          "symbol": "badarg"
+                        },
+                        {
+                          "u32": 3
+                        }
+                      ]
                     }
                   ]
                 }
