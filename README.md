@@ -407,6 +407,7 @@ jobs:
           min-severity: high
           upload-sarif: "true"
           sarif-output: sanctifier-results.sarif
+          debug: "false"
 ```
 
 When `format: sarif` and `upload-sarif: "true"`, the action uploads the SARIF
@@ -422,6 +423,7 @@ See also:
 
 - `docs/github-action-support-matrix.md`
 - `docs/github-action-threat-model.md`
+- Debug logging mode: set `with: debug: "true"` to print extra `[sanctifier-action][debug] ...` lines (safe-by-default).
 
 ---
 

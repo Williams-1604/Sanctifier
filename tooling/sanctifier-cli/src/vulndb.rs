@@ -1,3 +1,4 @@
+use anyhow::Context;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -41,9 +42,20 @@ pub struct VulnMatch {
 impl VulnDatabase {
     /// Load the vulnerability database from a JSON file.
     pub fn load(path: &Path) -> anyhow::Result<Self> {
-        let content = fs::read_to_string(path)?;
-        let db: VulnDatabase = serde_json::from_str(&content)?;
-        db.validate()?;
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("failed to read vulnerability database {}", path.display()))?;
+        let db: VulnDatabase = serde_json::from_str(&content).with_context(|| {
+            format!(
+                "failed to parse vulnerability database JSON {}",
+                path.display()
+            )
+        })?;
+        db.validate().with_context(|| {
+            format!(
+                "vulnerability database failed semantic validation {}",
+                path.display()
+            )
+        })?;
         Ok(db)
     }
 
@@ -59,9 +71,21 @@ impl VulnDatabase {
 
     /// Validate uniqueness and overlap constraints that JSON Schema cannot express.
     pub fn validate(&self) -> anyhow::Result<()> {
+        if self.version.trim().is_empty() {
+            anyhow::bail!("vulnerability database version must not be empty");
+        }
+        if self.last_updated.trim().is_empty() {
+            anyhow::bail!("vulnerability database last_updated must not be empty");
+        }
+        if self.description.trim().is_empty() {
+            anyhow::bail!("vulnerability database description must not be empty");
+        }
         if self.vulnerabilities.is_empty() {
             anyhow::bail!("vulnerability database must contain at least one vulnerability");
         }
+
+        let allowed_severities = ["critical", "high", "medium", "low", "info"];
+        let id_re = Regex::new(r"^[A-Z0-9][A-Z0-9._-]*$").expect("id regex is valid");
 
         let mut ids: HashMap<&str, usize> = HashMap::new();
         let mut names: HashMap<String, usize> = HashMap::new();
@@ -69,20 +93,60 @@ impl VulnDatabase {
         let mut errors = Vec::new();
 
         for (index, vuln) in self.vulnerabilities.iter().enumerate() {
-            if vuln.id.trim().is_empty() {
+            let id_trimmed = vuln.id.trim();
+            if id_trimmed.is_empty() {
                 errors.push(format!("vulnerabilities[{index}].id must not be empty"));
+            } else if !id_re.is_match(id_trimmed) {
+                errors.push(format!(
+                    "vulnerabilities[{index}].id must match {} (got {:?})",
+                    id_re.as_str(),
+                    vuln.id
+                ));
             }
             if vuln.name.trim().is_empty() {
                 errors.push(format!("vulnerabilities[{index}].name must not be empty"));
+            }
+            if vuln.description.trim().is_empty() {
+                errors.push(format!(
+                    "vulnerabilities[{index}].description must not be empty"
+                ));
+            }
+            if vuln.recommendation.trim().is_empty() {
+                errors.push(format!(
+                    "vulnerabilities[{index}].recommendation must not be empty"
+                ));
+            }
+
+            let severity_norm = vuln.severity.trim().to_ascii_lowercase();
+            if severity_norm.is_empty() {
+                errors.push(format!(
+                    "vulnerabilities[{index}].severity must not be empty"
+                ));
+            } else if !allowed_severities.contains(&severity_norm.as_str()) {
+                errors.push(format!(
+                    "vulnerabilities[{index}].severity must be one of {}, got {:?}",
+                    allowed_severities.join(", "),
+                    vuln.severity
+                ));
+            }
+
+            if vuln.category.trim().is_empty() {
+                errors.push(format!(
+                    "vulnerabilities[{index}].category must not be empty"
+                ));
             }
             if vuln.pattern.trim().is_empty() {
                 errors.push(format!(
                     "vulnerabilities[{index}].pattern must not be empty"
                 ));
             } else if let Err(err) = Regex::new(&vuln.pattern) {
+                let id_display = if id_trimmed.is_empty() {
+                    "<missing id>"
+                } else {
+                    id_trimmed
+                };
                 errors.push(format!(
-                    "{} has invalid regex pattern: {err}",
-                    vuln.id.as_str()
+                    "{id_display} has invalid regex pattern at vulnerabilities[{index}].pattern: {err}",
                 ));
             }
 
@@ -106,7 +170,7 @@ impl VulnDatabase {
             let signature = format!(
                 "{}\x1f{}\x1f{}",
                 vuln.category.trim().to_ascii_lowercase(),
-                vuln.severity.trim().to_ascii_lowercase(),
+                severity_norm,
                 vuln.pattern.trim()
             );
             if !vuln.pattern.trim().is_empty() {
@@ -412,6 +476,37 @@ fn second() {
         assert!(err
             .to_string()
             .contains("BAD-REGEX has invalid regex pattern"));
+    }
+
+    #[test]
+    fn test_load_rejects_invalid_severity_with_context() {
+        let custom_db_content = r#"{
+            "version": "0.1.0",
+            "last_updated": "2026-04-23",
+            "description": "Invalid severity database",
+            "vulnerabilities": [
+                {
+                    "id": "BAD-SEVERITY",
+                    "name": "Bad Severity",
+                    "description": "A bad severity",
+                    "severity": "urgent",
+                    "category": "test",
+                    "pattern": "urgent",
+                    "recommendation": "Fix it"
+                }
+            ]
+        }"#;
+
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        temp_file
+            .write_all(custom_db_content.as_bytes())
+            .expect("Failed to write temp file");
+        temp_file.flush().expect("Failed to flush");
+
+        let err =
+            VulnDatabase::load(temp_file.path()).expect_err("invalid severity should fail");
+        assert!(err.to_string().contains("vulnerabilities[0].severity"));
+        assert!(err.to_string().contains("urgent"));
     }
 
     #[test]
