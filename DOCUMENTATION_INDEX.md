@@ -23,6 +23,11 @@
 - **[COMPLETION_REPORT.md](COMPLETION_REPORT.md)** - What was delivered
 - **[IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)** - What's included
 
+### Contributor & Community Policies
+
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution workflow and PR process
+- **[Code of Conduct](.github/CODE_OF_CONDUCT.md)** - Community behavior expectations
+
 ---
 
 ## 📚 Comprehensive Guides
