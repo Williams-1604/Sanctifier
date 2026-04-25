@@ -30,6 +30,8 @@ use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 use syn::{parse_str, Fields, File, Item, Meta, Type};
 
+/// LRU analysis result cache keyed by source content hash.
+pub mod analysis_cache;
 /// Contract complexity metrics and reports.
 pub mod complexity;
 /// Custom YAML-based rule definitions.
