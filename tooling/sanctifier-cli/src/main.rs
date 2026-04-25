@@ -58,6 +58,8 @@ pub enum Commands {
     Verify(commands::verify::VerifyArgs),
     /// Analyze an entire Cargo workspace (multiple contracts/libs)
     Workspace(commands::workspace::WorkspaceArgs),
+    /// Watch for file changes and auto-rerun analysis
+    Watch(commands::watch::WatchArgs),
 }
 
 fn main() {
@@ -171,6 +173,9 @@ fn run() -> anyhow::Result<()> {
         }
         Commands::Workspace(args) => {
             commands::workspace::exec(args)?;
+        }
+        Commands::Watch(args) => {
+            commands::watch::exec(args)?;
         }
     }
 

@@ -111,6 +111,15 @@ pub(crate) struct FileAnalysisResult {
 // ── Entry point ──────────────────────────────────────────────────────────────
 
 pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
+    let should_exit_on_findings = args.exit_code;
+    let found_issues = run_analysis(args)?;
+    if found_issues && should_exit_on_findings {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+pub fn run_analysis(args: AnalyzeArgs) -> anyhow::Result<bool> {
     let mut path = args.path.clone();
 
     #[cfg(not(windows))]
@@ -139,7 +148,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
                 "Invalid Soroban project: missing Cargo.toml with a soroban-sdk dependency"
             );
         }
-        std::process::exit(2);
+        anyhow::bail!("{:?} is not a valid Soroban project", path);
     }
 
     info!(target: "sanctifier", path = %path.display(), "Valid Soroban project found");
@@ -455,10 +464,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
             },
         });
         println!("{}", serde_json::to_string_pretty(&report)?);
-        if should_exit_with_1 {
-            std::process::exit(1);
-        }
-        return Ok(());
+        return Ok(should_exit_with_1);
     }
 
     // ── Text output ──────────────────────────────────────────────────────────
@@ -724,10 +730,7 @@ pub fn exec(args: AnalyzeArgs) -> anyhow::Result<()> {
         reanalysed_count.to_string().bold(),
         duration_ms
     );
-    if should_exit_with_1 {
-        std::process::exit(1);
-    }
-    Ok(())
+    Ok(should_exit_with_1)
 }
 
 // ── Analyse one file ─────────────────────────────────────────────────────────

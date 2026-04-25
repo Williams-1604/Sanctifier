@@ -10,5 +10,6 @@ pub mod report;
 pub mod storage;
 pub mod update;
 pub mod verify;
+pub mod watch;
 pub mod webhook;
 pub mod workspace;
