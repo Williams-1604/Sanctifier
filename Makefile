@@ -12,7 +12,7 @@ test:
 lint:
 	cargo fmt --all --check
 	cargo clippy --workspace -- -D warnings
-	npm install && npm run format:db:check && npm run lint:db
+	npm install && npm run format:db:check && npm run lint:db && npm run lint:release-artifacts
 
 ## Auto-format all workspace source files.
 fmt:

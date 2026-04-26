@@ -155,6 +155,12 @@
 - Support/compatibility matrix: [docs/github-action-support-matrix.md](docs/github-action-support-matrix.md)
 - API reference generation: [docs/api-reference-generation.md](docs/api-reference-generation.md)
 
+### Release Artifacts (data/ + schemas/)
+
+- Threat model and operational guarantees: [docs/release-artifacts-threat-model.md](docs/release-artifacts-threat-model.md)
+- How to verify a downloaded artifact: [docs/provenance-verification.md](docs/provenance-verification.md)
+- Canonical artifact list: [data/release-manifest.json](data/release-manifest.json)
+
 ---
 
 ## 📚 Documentation Map by Use Case

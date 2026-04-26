@@ -11,7 +11,8 @@
     "docs:specs:check": "node scripts/validate_docs_specs.js",
     "format:db": "prettier --write \"data/**/*.{json,yaml,yml}\" \"schemas/**/*.json\"",
     "format:db:check": "prettier --check \"data/**/*.{json,yaml,yml}\" \"schemas/**/*.json\"",
-    "lint:db": "node scripts/validate_db.js"
+    "lint:db": "node scripts/validate_db.js",
+    "lint:release-artifacts": "node scripts/validate_release_artifacts.js"
   },
   "keywords": [],
   "author": "",

@@ -2,13 +2,20 @@
 
 Sanctifier provides cryptographically verifiable provenance for its vulnerability database and schema artifacts to ensure they have not been tampered with after being produced by our official CI pipeline.
 
+For the threat model behind these controls — what they defend against and why each one exists — see [release-artifacts-threat-model.md](release-artifacts-threat-model.md).
+
+## What is covered
+
+The canonical release-artifact set is declared in [`data/release-manifest.json`](../data/release-manifest.json).
+Every file listed there is hashed in `CHECKSUMS.txt` and attested via GitHub Artifact Attestations on each tag push.
+
 ## Verification using Checksums
 
-Every release includes a `CHECKSUMS.txt` manifest. You can verify your local files using `shasum`:
+Every release includes a `CHECKSUMS.txt` manifest. You can verify your local files using `sha256sum` (or `shasum -a 256` on macOS):
 
 ```bash
 # Verify all files in the manifest
-grep -v '^#' CHECKSUMS.txt | shasum -a 256 -c
+grep -v '^#' CHECKSUMS.txt | sha256sum -c
 ```
 
 ## Verification using GitHub Attestations
