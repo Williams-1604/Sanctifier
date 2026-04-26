@@ -1,3 +1,4 @@
+use crate::cross_contract::{handle_cross_contract_message, CrossContractMessage};
 use crate::{Token, TokenClient};
 use bolero::{check, generator::*};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
@@ -97,4 +98,96 @@ fn fuzz_burn_balance_never_negative() {
                 );
             }
         });
+}
+
+/// Cross-contract harness: feeding arbitrary bytes into the parser must
+/// never panic.  Either it returns a structured message or a typed error.
+#[test]
+fn fuzz_raw_bytes_no_panic() {
+    check!()
+        .with_type::<alloc::vec::Vec<u8>>()
+        .for_each(|bytes| {
+            let _ = handle_cross_contract_message(bytes.as_slice());
+        });
+}
+
+/// Structured-message harness: round-tripping a structurally valid
+/// payload through the parser must yield the same logical message.
+/// This guards against silent decoder regressions.
+#[test]
+fn fuzz_structured_message_no_panic() {
+    check!()
+        .with_generator(gen::<(u8, [u8; 32], [u8; 32], [u8; 32], i128, u32)>())
+        .for_each(|(op, a, b, c, amount, expiration)| {
+            let mut buf = alloc::vec::Vec::with_capacity(1 + 32 * 3 + 16 + 4);
+            buf.push(*op);
+            buf.extend_from_slice(a);
+            buf.extend_from_slice(b);
+            buf.extend_from_slice(c);
+            buf.extend_from_slice(&amount.to_le_bytes());
+            buf.extend_from_slice(&expiration.to_le_bytes());
+
+            // Must never panic regardless of the opcode byte.
+            let parsed = handle_cross_contract_message(&buf);
+
+            // Successful parses must round-trip: re-encoding the
+            // decoded message and re-parsing yields the same value.
+            if parsed.is_ok() {
+                if let Ok(msg) = crate::cross_contract::parse(&buf) {
+                    let reencoded = encode_message(&msg);
+                    let reparsed = crate::cross_contract::parse(&reencoded)
+                        .expect("re-encoded message must parse");
+                    assert_eq!(msg, reparsed, "round-trip must be lossless");
+                }
+            }
+        });
+}
+
+extern crate alloc;
+
+fn encode_message(msg: &CrossContractMessage) -> alloc::vec::Vec<u8> {
+    let mut buf = alloc::vec::Vec::new();
+    match msg {
+        CrossContractMessage::Mint { to, amount } => {
+            buf.push(0x01);
+            buf.extend_from_slice(to);
+            buf.extend_from_slice(&amount.to_le_bytes());
+        }
+        CrossContractMessage::Burn { from, amount } => {
+            buf.push(0x02);
+            buf.extend_from_slice(from);
+            buf.extend_from_slice(&amount.to_le_bytes());
+        }
+        CrossContractMessage::Transfer { from, to, amount } => {
+            buf.push(0x03);
+            buf.extend_from_slice(from);
+            buf.extend_from_slice(to);
+            buf.extend_from_slice(&amount.to_le_bytes());
+        }
+        CrossContractMessage::Approve {
+            from,
+            spender,
+            amount,
+            expiration_ledger,
+        } => {
+            buf.push(0x04);
+            buf.extend_from_slice(from);
+            buf.extend_from_slice(spender);
+            buf.extend_from_slice(&amount.to_le_bytes());
+            buf.extend_from_slice(&expiration_ledger.to_le_bytes());
+        }
+        CrossContractMessage::TransferFrom {
+            spender,
+            from,
+            to,
+            amount,
+        } => {
+            buf.push(0x05);
+            buf.extend_from_slice(spender);
+            buf.extend_from_slice(from);
+            buf.extend_from_slice(to);
+            buf.extend_from_slice(&amount.to_le_bytes());
+        }
+    }
+    buf
 }

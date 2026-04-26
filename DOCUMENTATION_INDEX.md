@@ -60,6 +60,15 @@
 - Troubleshooting
 - Best practices for production
 
+### Contracts Fuzz Harness CI
+
+**[docs/contracts-fuzz.md](docs/contracts-fuzz.md)** - Fuzz harness coverage
+
+- Bolero in-process property tests (every PR)
+- cargo-fuzz / cargo-bolero coverage-guided harness (nightly)
+- Cross-contract message wire format stability
+- Local reproduction recipes
+
 ### Technical Architecture
 
 **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design and components
