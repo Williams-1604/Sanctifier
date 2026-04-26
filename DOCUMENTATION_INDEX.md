@@ -110,6 +110,18 @@
 - Single-command deployment
 - Automatic validation
 
+### Rule Authoring Guide
+
+**[docs/rule-authoring-guide.md](docs/rule-authoring-guide.md)**
+
+- Rule anatomy and matcher types
+- Built-in rules (`S001`–`S012`) overview
+- Custom rule authoring (TOML inline + YAML files)
+- `.sanctify.toml` configuration reference
+- Testing fixtures and CI validation
+- Severity guidelines and output stability
+- Contribution checklist for rule PRs
+
 ### WASM Module Versioning & Input Validation
 
 **[docs/wasm-versioning-alignment.md](docs/wasm-versioning-alignment.md)** - WASM module hardening
@@ -222,6 +234,7 @@
 | [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) | 10 min | What's included  |
 | [COMPLETION_REPORT.md](COMPLETION_REPORT.md)           | 5 min  | Deliverables     |
 | Contract README                                        | 20 min | Contract details |
+| [docs/rule-authoring-guide.md](docs/rule-authoring-guide.md) | 15 min | Rule authoring |
 
 ### Deployment Operations
 
